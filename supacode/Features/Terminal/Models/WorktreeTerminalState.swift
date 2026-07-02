@@ -1124,6 +1124,7 @@ final class WorktreeTerminalState {
         TerminalLayoutSnapshot.SurfaceSnapshot(
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
+          terminalTitle: surfaceStates[view.id]?.terminalTitle ?? view.bridge.state.title,
           agents: agentsBySurface[view.id]
         )
       )
@@ -1176,6 +1177,7 @@ final class WorktreeTerminalState {
         context: context,
         surfaceID: tabSnapshot.layout.firstLeaf.id,
       )
+      restoreSurfaceTitle(tabSnapshot.layout.firstLeaf, for: surface)
       let tree = SplitTree(view: surface)
       setTree(tree, for: tabId)
       setFocusedSurface(surface.id, for: tabId)
@@ -1246,8 +1248,18 @@ final class WorktreeTerminalState {
     }
 
     // Recurse into left and right subtrees.
+    restoreSurfaceTitle(split.right.firstLeaf, for: newSurface)
     restoreLayoutNode(split.left, anchor: anchor, tabId: tabId)
     restoreLayoutNode(split.right, anchor: newSurface, tabId: tabId)
+  }
+
+  private func restoreSurfaceTitle(
+    _ snapshot: TerminalLayoutSnapshot.SurfaceSnapshot,
+    for surface: GhosttySurfaceView
+  ) {
+    let title = snapshot.terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !title.isEmpty else { return }
+    surfaceStates[surface.id]?.terminalTitle = title
   }
 
   private func createRestorationSplit(

@@ -65,24 +65,32 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
   struct SurfaceSnapshot: Codable, Equatable, Sendable {
     let id: UUID?
     let workingDirectory: String?
+    let terminalTitle: String?
     /// Agent presence captured at quit, restored on next launch after an
     /// off-main liveness check. Nil on legacy layouts and fresh surfaces.
     let agents: [SurfaceAgentRecord]?
 
-    init(id: UUID?, workingDirectory: String?, agents: [SurfaceAgentRecord]? = nil) {
+    init(
+      id: UUID?,
+      workingDirectory: String?,
+      terminalTitle: String? = nil,
+      agents: [SurfaceAgentRecord]? = nil
+    ) {
       self.id = id
       self.workingDirectory = workingDirectory
+      self.terminalTitle = terminalTitle
       self.agents = agents
     }
 
     private enum CodingKeys: String, CodingKey {
-      case id, workingDirectory, agents
+      case id, workingDirectory, terminalTitle, agents
     }
 
     init(from decoder: any Decoder) throws {
       let container = try decoder.container(keyedBy: CodingKeys.self)
       id = try container.decodeIfPresent(UUID.self, forKey: .id)
       workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+      terminalTitle = try container.decodeIfPresent(String.self, forKey: .terminalTitle)
       // `try?` so a future shape change drops the field, not the whole entry.
       agents = (try? container.decodeIfPresent([SurfaceAgentRecord].self, forKey: .agents)) ?? nil
     }

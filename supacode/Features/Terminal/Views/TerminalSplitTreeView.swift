@@ -10,6 +10,7 @@ struct TerminalSplitTreeView: View {
   // Single source of truth for which pane is active in this tab. Any surface
   // whose id does not match this gets the unfocused-split dim overlay.
   let activeSurfaceID: UUID?
+  let paneTitlesEnabled: Bool
   // Supacode renders surfaces directly (no Ghostty SurfaceWrapper), so the
   // unfocused-pane dim overlay is applied here from the `unfocused-split-fill`
   // and `unfocused-split-opacity` config values. Fill is nil when the config
@@ -38,6 +39,7 @@ struct TerminalSplitTreeView: View {
         isRoot: node == tree.root,
         terminalState: terminalState,
         activeSurfaceID: activeSurfaceID,
+        paneTitlesEnabled: paneTitlesEnabled,
         unfocusedSplitOverlay: unfocusedSplitOverlay,
         action: action
       )
@@ -56,6 +58,7 @@ struct TerminalSplitTreeView: View {
     var isRoot: Bool = false
     let terminalState: WorktreeTerminalState
     let activeSurfaceID: UUID?
+    let paneTitlesEnabled: Bool
     let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
     let action: (Operation) -> Void
 
@@ -67,6 +70,7 @@ struct TerminalSplitTreeView: View {
           surfaceState: terminalState.surfaceStates[leafView.id],
           isSplit: !isRoot,
           activeSurfaceID: activeSurfaceID,
+          paneTitlesEnabled: paneTitlesEnabled,
           unfocusedSplitOverlay: unfocusedSplitOverlay,
           action: action
         )
@@ -92,6 +96,7 @@ struct TerminalSplitTreeView: View {
               node: split.left,
               terminalState: terminalState,
               activeSurfaceID: activeSurfaceID,
+              paneTitlesEnabled: paneTitlesEnabled,
               unfocusedSplitOverlay: unfocusedSplitOverlay,
               action: action
             )
@@ -101,6 +106,7 @@ struct TerminalSplitTreeView: View {
               node: split.right,
               terminalState: terminalState,
               activeSurfaceID: activeSurfaceID,
+              paneTitlesEnabled: paneTitlesEnabled,
               unfocusedSplitOverlay: unfocusedSplitOverlay,
               action: action
             )
@@ -118,6 +124,7 @@ struct TerminalSplitTreeView: View {
     let surfaceState: WorktreeSurfaceState?
     let isSplit: Bool
     let activeSurfaceID: UUID?
+    let paneTitlesEnabled: Bool
     let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
     let action: (Operation) -> Void
 
@@ -187,7 +194,7 @@ struct TerminalSplitTreeView: View {
     }
 
     private var paneTitle: String? {
-      guard isSplit else { return nil }
+      guard paneTitlesEnabled, isSplit else { return nil }
 
       let customTitle = surfaceState?.paneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !customTitle.isEmpty {
@@ -429,6 +436,7 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
   let tree: SplitTree<GhosttySurfaceView>
   let terminalState: WorktreeTerminalState
   let activeSurfaceID: UUID?
+  let paneTitlesEnabled: Bool
   let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
   let action: (TerminalSplitTreeView.Operation) -> Void
 
@@ -442,6 +450,7 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
         tree: tree,
         terminalState: terminalState,
         activeSurfaceID: activeSurfaceID,
+        paneTitlesEnabled: paneTitlesEnabled,
         unfocusedSplitOverlay: unfocusedSplitOverlay,
         action: action
       ),
