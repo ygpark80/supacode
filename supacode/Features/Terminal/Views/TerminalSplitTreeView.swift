@@ -141,9 +141,11 @@ struct TerminalSplitTreeView: View {
       GeometryReader { geometry in
         VStack(spacing: 0) {
           terminalContent
+            .clipped()
 
           if let paneTitle {
             PaneTitleBar(title: paneTitle)
+              .zIndex(1)
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
