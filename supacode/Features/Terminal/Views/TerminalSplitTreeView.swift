@@ -197,25 +197,7 @@ struct TerminalSplitTreeView: View {
 
     private var paneTitle: String? {
       guard paneTitlesEnabled, isSplit else { return nil }
-
-      let customTitle = surfaceState?.paneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !customTitle.isEmpty {
-        return customTitle
-      }
-
-      let agentTitle = surfaceState?.agentSessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !agentTitle.isEmpty {
-        return agentTitle
-      }
-
-      let title =
-        (surfaceState?.terminalTitle ?? surfaceView.bridge.state.title)?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !title.isEmpty {
-        return title
-      }
-
-      return nil
+      return surfaceState?.preferredTitle(fallback: surfaceView.bridge.state.title)
     }
 
   }

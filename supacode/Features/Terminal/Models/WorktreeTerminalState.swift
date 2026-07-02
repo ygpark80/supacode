@@ -1048,11 +1048,7 @@ final class WorktreeTerminalState {
   @discardableResult
   func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID) -> Bool {
     guard let state = surfaceStates[surfaceID] else { return false }
-    let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let normalized = trimmed.isEmpty ? nil : trimmed
-    guard state.agentSessionTitle != normalized else { return false }
-    state.agentSessionTitle = normalized
-    return true
+    return state.setTitle(title, source: .agentSession)
   }
 
   private func clearAllSurfaceUnseenFlags() {
@@ -1156,15 +1152,10 @@ final class WorktreeTerminalState {
   }
 
   private func snapshotTitle(for view: GhosttySurfaceView) -> String? {
-    let candidates = [
-      surfaceStates[view.id]?.agentSessionTitle,
-      surfaceStates[view.id]?.terminalTitle,
-      view.bridge.state.title,
-    ]
-    return candidates.lazy.compactMap { candidate in
-      let title = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      return title.isEmpty ? nil : title
-    }.first
+    surfaceStates[view.id]?.preferredTitle(
+      sources: [.agentSession, .terminal],
+      fallback: view.bridge.state.title
+    )
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {
@@ -1281,7 +1272,7 @@ final class WorktreeTerminalState {
   ) {
     let title = snapshot.terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !title.isEmpty {
-      surfaceStates[surface.id]?.terminalTitle = title
+      surfaceStates[surface.id]?.setTitle(title, source: .terminal)
     }
   }
 
@@ -1559,7 +1550,7 @@ final class WorktreeTerminalState {
     view.bridge.onTitleChange = { [weak self, weak view] title in
       guard let self, let view else { return }
       guard self.isLiveSurface(view) else { return }
-      self.surfaceStates[view.id]?.terminalTitle = title
+      self.surfaceStates[view.id]?.setTitle(title, source: .terminal)
       if self.focusedSurfaceIdByTab[tabId] == view.id {
         self.tabManager.updateTitle(tabId, title: title)
       }
