@@ -28,6 +28,13 @@ struct WorktreeSurfaceTitle: Equatable {
 
   let source: Source
   let value: String
+
+  var agent: SkillAgent? {
+    if case .agentSession(let agent) = source {
+      return agent
+    }
+    return nil
+  }
 }
 
 /// Per-surface observable kept off `GhosttySurfaceState` so the Ghostty bridge
@@ -62,11 +69,17 @@ final class WorktreeSurfaceState {
     where include: (WorktreeSurfaceTitle.Source) -> Bool = { _ in true },
     fallback: String? = nil
   ) -> String? {
-    if let title = titles.first(where: { include($0.source) })?.value {
+    if let title = preferredTitleCandidate(where: include)?.value {
       return title
     }
     let fallback = fallback?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return fallback.isEmpty ? nil : fallback
+  }
+
+  func preferredTitleCandidate(
+    where include: (WorktreeSurfaceTitle.Source) -> Bool = { _ in true }
+  ) -> WorktreeSurfaceTitle? {
+    titles.first(where: { include($0.source) })
   }
 
   func title(for source: WorktreeSurfaceTitle.Source) -> String? {

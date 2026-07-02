@@ -146,7 +146,7 @@ struct TerminalSplitTreeView: View {
             .clipped()
 
           if let paneTitle {
-            PaneTitleBar(title: paneTitle)
+            PaneTitleBar(title: paneTitle.title, agent: paneTitle.agent)
               .zIndex(1)
           }
         }
@@ -197,31 +197,46 @@ struct TerminalSplitTreeView: View {
         }
     }
 
-    private var paneTitle: String? {
+    private var paneTitle: PaneTitle? {
       guard paneTitlesEnabled else { return nil }
-      return surfaceState?.preferredTitle(fallback: surfaceView.bridge.state.title)
+      if let candidate = surfaceState?.preferredTitleCandidate() {
+        return PaneTitle(title: candidate.value, agent: candidate.agent)
+      }
+      let fallback = surfaceView.bridge.state.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return fallback.isEmpty ? nil : PaneTitle(title: fallback, agent: nil)
     }
 
   }
 
+  struct PaneTitle: Equatable {
+    let title: String
+    let agent: SkillAgent?
+  }
+
   struct PaneTitleBar: View {
     let title: String
+    let agent: SkillAgent?
 
     var body: some View {
-      HStack(spacing: 6) {
+      HStack(spacing: 7) {
+        if let agent {
+          AgentBadgeView(agent: agent, size: 16)
+            .accessibilityHidden(true)
+        }
+
         Text(title)
-          .font(.caption2)
-          .fontWeight(.medium)
+          .font(.caption)
+          .fontWeight(.semibold)
           .lineLimit(1)
           .truncationMode(.tail)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(.primary.opacity(0.78))
 
         Spacer(minLength: 0)
       }
       .frame(maxWidth: .infinity)
-      .frame(height: 18)
-      .padding(.horizontal, 6)
-      .background(Color(nsColor: .windowBackgroundColor))
+      .frame(height: 22)
+      .padding(.horizontal, 7)
+      .background(.bar)
       .overlay(alignment: .top) {
         Rectangle()
           .fill(Color(nsColor: .separatorColor))
