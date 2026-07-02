@@ -25,6 +25,31 @@ final class AgentSessionTitleSynchronizer {
     let name: String?
   }
 
+  private nonisolated struct CodexSessionIndexRecord: Decodable {
+    let id: String
+    let threadName: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case id
+      case threadName = "thread_name"
+    }
+  }
+
+  private nonisolated struct CodexRolloutEvent: Decodable {
+    let type: String
+    let payload: CodexRolloutPayload?
+  }
+
+  private nonisolated struct CodexRolloutPayload: Decodable {
+    let type: String?
+    let threadName: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case type
+      case threadName = "thread_name"
+    }
+  }
+
   init(sleep: @escaping @Sendable (Duration) async throws -> Void) {
     self.sleep = sleep
     self.providers = [
@@ -150,28 +175,105 @@ final class AgentSessionTitleSynchronizer {
       return nil
     }
 
-    let sql: String
     if let threadID = codexThreadID(pid: session.pid) {
-      sql = """
-        select title from threads
-        where id = \(sqlString(threadID))
-        limit 1;
-        """
+      if let title = readCodexSessionIndexTitle(threadID: threadID) {
+        return title
+      }
+      if let rolloutURL = codexRolloutURL(databaseURL: databaseURL, threadID: threadID),
+        let title = readCodexRolloutTitle(rolloutURL: rolloutURL)
+      {
+        return title
+      }
+      return readCodexSQLiteTitle(
+        databaseURL: databaseURL,
+        sql: """
+          select title from threads
+          where id = \(sqlString(threadID))
+          limit 1;
+          """
+      )
     } else if let workingDirectory = session.workingDirectory,
       !workingDirectory.isEmpty
     {
-      sql = """
-        select title from threads
-        where archived = 0 and cwd = \(sqlString(workingDirectory))
-        order by updated_at_ms desc
-        limit 1;
-        """
+      return readCodexSQLiteTitle(
+        databaseURL: databaseURL,
+        sql: """
+          select title from threads
+          where archived = 0 and cwd = \(sqlString(workingDirectory))
+          order by updated_at_ms desc
+          limit 1;
+          """
+      )
     } else {
       return nil
     }
+  }
 
+  private nonisolated static func readCodexSQLiteTitle(databaseURL: URL, sql: String) -> String? {
     guard let output = runSQLite(databaseURL: databaseURL, sql: sql) else { return nil }
     let title = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    return title.isEmpty ? nil : title
+  }
+
+  private nonisolated static func codexRolloutURL(databaseURL: URL, threadID: String) -> URL? {
+    let sql = """
+      select rollout_path from threads
+      where id = \(sqlString(threadID))
+      limit 1;
+      """
+    guard let output = runSQLite(databaseURL: databaseURL, sql: sql) else { return nil }
+    let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !path.isEmpty else { return nil }
+    return URL(filePath: path)
+  }
+
+  private nonisolated static func readCodexSessionIndexTitle(threadID: String) -> String? {
+    let indexURL = FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: ".codex/session_index.jsonl", directoryHint: .notDirectory)
+    guard let contents = try? String(contentsOf: indexURL, encoding: .utf8) else { return nil }
+    let decoder = JSONDecoder()
+    var title: String?
+    for line in contents.split(separator: "\n", omittingEmptySubsequences: true) {
+      guard let data = String(line).data(using: .utf8),
+        let record = try? decoder.decode(CodexSessionIndexRecord.self, from: data),
+        record.id == threadID
+      else {
+        continue
+      }
+      title = normalizedTitle(record.threadName)
+    }
+    return title
+  }
+
+  private nonisolated static func readCodexRolloutTitle(rolloutURL: URL) -> String? {
+    guard FileManager.default.fileExists(atPath: rolloutURL.path(percentEncoded: false)) else {
+      return nil
+    }
+    let output =
+      runProcess(
+        executableURL: URL(filePath: "/usr/bin/tail"),
+        arguments: ["-n", "2000", rolloutURL.path(percentEncoded: false)]
+      )
+      ?? (try? String(contentsOf: rolloutURL, encoding: .utf8))
+    guard let output else { return nil }
+
+    let decoder = JSONDecoder()
+    var title: String?
+    for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+      guard let data = String(line).data(using: .utf8),
+        let event = try? decoder.decode(CodexRolloutEvent.self, from: data),
+        event.type == "event_msg",
+        event.payload?.type == "thread_name_updated"
+      else {
+        continue
+      }
+      title = normalizedTitle(event.payload?.threadName)
+    }
+    return title
+  }
+
+  private nonisolated static func normalizedTitle(_ title: String?) -> String? {
+    let title = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return title.isEmpty ? nil : title
   }
 
