@@ -149,6 +149,10 @@ final class WorktreeTerminalState {
     notifications.contains { !$0.isRead && $0.surfaceID == surfaceID }
   }
 
+  func workingDirectory(forSurfaceID surfaceID: UUID) -> String? {
+    surfaces[surfaceID]?.bridge.state.pwd
+  }
+
   func hasUnseenNotification(forTabID tabID: TerminalTabID) -> Bool {
     guard let tree = trees[tabID] else { return false }
     let surfaceIDs = Set(tree.leaves().map(\.id))

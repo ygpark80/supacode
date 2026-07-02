@@ -4,9 +4,8 @@ import SupacodeSettingsShared
 
 @MainActor
 final class AgentSessionTitleSynchronizer {
-  private struct TitleProvider {
-    let sessionURL: (pid_t) -> URL
-    let readTitle: (URL) -> String?
+  private nonisolated struct TitleProvider: Sendable {
+    let readTitle: @Sendable (Session) -> String?
   }
 
   private let sleep: @Sendable (Duration) async throws -> Void
@@ -16,12 +15,13 @@ final class AgentSessionTitleSynchronizer {
 
   private static let pollInterval: Duration = .seconds(1)
 
-  private struct Session: Equatable {
+  private nonisolated struct Session: Equatable, Sendable {
     let agent: SkillAgent
     let pid: pid_t
+    let workingDirectory: String?
   }
 
-  private struct ClaudeSessionFile: Decodable {
+  private nonisolated struct ClaudeSessionFile: Decodable {
     let name: String?
   }
 
@@ -29,9 +29,11 @@ final class AgentSessionTitleSynchronizer {
     self.sleep = sleep
     self.providers = [
       .claude: TitleProvider(
-        sessionURL: Self.claudeSessionURL(pid:),
-        readTitle: Self.readClaudeSessionTitle(at:)
-      )
+        readTitle: Self.readClaudeSessionTitle(session:)
+      ),
+      .codex: TitleProvider(
+        readTitle: Self.readCodexSessionTitle(session:)
+      ),
     ]
   }
 
@@ -42,6 +44,7 @@ final class AgentSessionTitleSynchronizer {
   func update(
     from event: AgentHookEvent,
     surfaceExists: (UUID) -> Bool,
+    workingDirectory: (UUID) -> String?,
     applyTitle: @escaping @MainActor (String?, UUID, SkillAgent) -> Void
   ) {
     guard let agent = SkillAgent(rawValue: event.agent),
@@ -58,7 +61,7 @@ final class AgentSessionTitleSynchronizer {
     guard let pid = event.pid else { return }
     start(
       surfaceID: event.surfaceID,
-      session: Session(agent: agent, pid: pid),
+      session: Session(agent: agent, pid: pid, workingDirectory: workingDirectory(event.surfaceID)),
       provider: provider,
       surfaceExists: surfaceExists,
       applyTitle: applyTitle
@@ -85,22 +88,21 @@ final class AgentSessionTitleSynchronizer {
 
     stop(surfaceID: surfaceID, clearingTitle: false, applyTitle: applyTitle)
     sessions[surfaceID] = session
-    let sessionURL = provider.sessionURL(session.pid)
     let sleep = sleep
-    tasks[surfaceID] = Task { [weak self] in
+    tasks[surfaceID] = Task.detached { [weak self] in
       var lastTitle: String?
       while !Task.isCancelled {
         guard Self.isProcessAlive(session.pid) else { break }
-        let title = provider.readTitle(sessionURL)
+        let title = provider.readTitle(session)
         if title != lastTitle {
           lastTitle = title
-          applyTitle(title, surfaceID, session.agent)
+          await applyTitle(title, surfaceID, session.agent)
         }
         try? await sleep(Self.pollInterval)
       }
 
       guard !Task.isCancelled else { return }
-      self?.finish(surfaceID: surfaceID, session: session, applyTitle: applyTitle)
+      await self?.finish(surfaceID: surfaceID, session: session, applyTitle: applyTitle)
     }
   }
 
@@ -114,21 +116,25 @@ final class AgentSessionTitleSynchronizer {
     }
   }
 
-  private func finish(surfaceID: UUID, session: Session, applyTitle: (String?, UUID, SkillAgent) -> Void) {
+  private func finish(
+    surfaceID: UUID,
+    session: Session,
+    applyTitle: @MainActor @Sendable (String?, UUID, SkillAgent) -> Void
+  ) {
     guard sessions[surfaceID] == session else { return }
     tasks.removeValue(forKey: surfaceID)
     sessions.removeValue(forKey: surfaceID)
     applyTitle(nil, surfaceID, session.agent)
   }
 
-  private static func claudeSessionURL(pid: pid_t) -> URL {
+  private nonisolated static func claudeSessionURL(pid: pid_t) -> URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".claude/sessions", directoryHint: .isDirectory)
       .appending(path: "\(pid).json", directoryHint: .notDirectory)
   }
 
-  private static func readClaudeSessionTitle(at url: URL) -> String? {
-    guard let data = try? Data(contentsOf: url),
+  private nonisolated static func readClaudeSessionTitle(session: Session) -> String? {
+    guard let data = try? Data(contentsOf: claudeSessionURL(pid: session.pid)),
       let session = try? JSONDecoder().decode(ClaudeSessionFile.self, from: data)
     else {
       return nil
@@ -137,7 +143,51 @@ final class AgentSessionTitleSynchronizer {
     return title.isEmpty ? nil : title
   }
 
-  private static func isProcessAlive(_ pid: pid_t) -> Bool {
+  private nonisolated static func readCodexSessionTitle(session: Session) -> String? {
+    guard let workingDirectory = session.workingDirectory,
+      !workingDirectory.isEmpty
+    else {
+      return nil
+    }
+    let databaseURL = FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: ".codex/state_5.sqlite", directoryHint: .notDirectory)
+    guard FileManager.default.fileExists(atPath: databaseURL.path(percentEncoded: false)) else {
+      return nil
+    }
+    let sql = """
+      select title from threads
+      where archived = 0 and cwd = \(sqlString(workingDirectory))
+      order by updated_at_ms desc
+      limit 1;
+      """
+    guard let output = runSQLite(databaseURL: databaseURL, sql: sql) else { return nil }
+    let title = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    return title.isEmpty ? nil : title
+  }
+
+  private nonisolated static func runSQLite(databaseURL: URL, sql: String) -> String? {
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/sqlite3")
+    process.arguments = ["-readonly", databaseURL.path(percentEncoded: false), sql]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+    do {
+      try process.run()
+      process.waitUntilExit()
+    } catch {
+      return nil
+    }
+    guard process.terminationStatus == 0 else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    return String(data: data, encoding: .utf8)
+  }
+
+  private nonisolated static func sqlString(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+  }
+
+  private nonisolated static func isProcessAlive(_ pid: pid_t) -> Bool {
     kill(pid, 0) == 0 || errno == EPERM
   }
 }
