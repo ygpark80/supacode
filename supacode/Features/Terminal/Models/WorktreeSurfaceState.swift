@@ -1,11 +1,28 @@
 import Foundation
 import Observation
+import SupacodeSettingsShared
 
 struct WorktreeSurfaceTitle: Equatable {
-  enum Source: Int, CaseIterable, Hashable {
+  enum Source: Hashable {
     case paneOverride
-    case agentSession
+    case agentSession(SkillAgent)
     case terminal
+
+    var priority: Int {
+      switch self {
+      case .paneOverride: 0
+      case .agentSession: 1
+      case .terminal: 2
+      }
+    }
+
+    var sortKey: String {
+      switch self {
+      case .paneOverride: "paneOverride"
+      case .agentSession(let agent): "agentSession:\(agent.rawValue)"
+      case .terminal: "terminal"
+      }
+    }
   }
 
   let source: Source
@@ -41,22 +58,38 @@ final class WorktreeSurfaceState {
   }
 
   func preferredTitle(
-    sources: [WorktreeSurfaceTitle.Source] = WorktreeSurfaceTitle.Source.allCases,
+    where include: (WorktreeSurfaceTitle.Source) -> Bool = { _ in true },
     fallback: String? = nil
   ) -> String? {
-    let allowed = Set(sources)
-    if let title = titles.first(where: { allowed.contains($0.source) })?.value {
+    if let title = titles.first(where: { include($0.source) })?.value {
       return title
     }
     let fallback = fallback?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return fallback.isEmpty ? nil : fallback
   }
 
+  func title(for source: WorktreeSurfaceTitle.Source) -> String? {
+    titles.first(where: { $0.source == source })?.value
+  }
+
   private static func orderedTitles(
     from titlesBySource: [WorktreeSurfaceTitle.Source: String]
   ) -> [WorktreeSurfaceTitle] {
-    WorktreeSurfaceTitle.Source.allCases.compactMap { source in
-      titlesBySource[source].map { WorktreeSurfaceTitle(source: source, value: $0) }
-    }
+    titlesBySource
+      .map { WorktreeSurfaceTitle(source: $0.key, value: $0.value) }
+      .sorted {
+        if $0.source.priority != $1.source.priority {
+          return $0.source.priority < $1.source.priority
+        }
+        return $0.source.sortKey < $1.source.sortKey
+      }
+  }
+
+  func agentSessionTitle(for agent: SkillAgent) -> String? {
+    title(for: .agentSession(agent))
+  }
+
+  var terminalTitle: String? {
+    title(for: .terminal)
   }
 }

@@ -103,6 +103,14 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     let agent: String
     let pids: [Int32]
     let activity: String
+    let title: String?
+
+    init(agent: String, pids: [Int32], activity: String, title: String? = nil) {
+      self.agent = agent
+      self.pids = pids
+      self.activity = activity
+      self.title = title
+    }
   }
 
 }

@@ -41,7 +41,7 @@ final class WorktreeTerminalManager {
   private var pendingIdleHookEvents: [IdleDebounceKey: Task<Void, Never>] = [:]
   @ObservationIgnored
   private let hookEventSleep: @Sendable (Duration) async throws -> Void
-  @ObservationIgnored private let claudeSessionTitles: ClaudeSessionTitleSynchronizer
+  @ObservationIgnored private let agentSessionTitles: AgentSessionTitleSynchronizer
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   /// Serialized off-main writer that merges per-worktree layout changes into
@@ -133,7 +133,7 @@ final class WorktreeTerminalManager {
       try await clock.sleep(for: duration)
     }
     self.hookEventSleep = hookEventSleep
-    self.claudeSessionTitles = ClaudeSessionTitleSynchronizer(sleep: hookEventSleep)
+    self.agentSessionTitles = AgentSessionTitleSynchronizer(sleep: hookEventSleep)
     self.layoutDebounceSleep = { duration in try await clock.sleep(for: duration) }
     @Dependency(\.settingsFileStorage) var settingsFileStorage
     self.layoutsWriter = LayoutsIncrementalWriter(storage: settingsFileStorage)
@@ -173,7 +173,7 @@ final class WorktreeTerminalManager {
   /// Holds `.idle` for a debounce window so PostToolUse / PreToolUse storms don't flap downstream UI.
   /// Applies the idle debounce before the OSC-sourced event lands in TCA.
   private func dispatchHookEvent(_ event: AgentHookEvent) {
-    updateClaudeSessionTitleSync(from: event)
+    updateAgentSessionTitleSync(from: event)
     guard let agent = SkillAgent(rawValue: event.agent) else {
       applyHookEvent(event)
       return
@@ -203,27 +203,27 @@ final class WorktreeTerminalManager {
     }
   }
 
-  private func updateClaudeSessionTitleSync(from event: AgentHookEvent) {
-    claudeSessionTitles.update(
+  private func updateAgentSessionTitleSync(from event: AgentHookEvent) {
+    agentSessionTitles.update(
       from: event,
       surfaceExists: { [weak self] surfaceID in
         self?.state(containingSurfaceID: surfaceID) != nil
       },
-      applyTitle: { [weak self] title, surfaceID in
-        self?.applyAgentSessionTitle(title, surfaceID: surfaceID)
+      applyTitle: { [weak self] title, surfaceID, agent in
+        self?.applyAgentSessionTitle(title, surfaceID: surfaceID, agent: agent)
       }
     )
   }
 
-  private func cancelClaudeSessionTitleSync(forSurfaceIDs surfaceIDs: Set<UUID>) {
-    claudeSessionTitles.cancel(surfaceIDs: surfaceIDs) { [weak self] title, surfaceID in
-      self?.applyAgentSessionTitle(title, surfaceID: surfaceID)
+  private func cancelAgentSessionTitleSync(forSurfaceIDs surfaceIDs: Set<UUID>) {
+    agentSessionTitles.cancel(surfaceIDs: surfaceIDs) { [weak self] title, surfaceID, agent in
+      self?.applyAgentSessionTitle(title, surfaceID: surfaceID, agent: agent)
     }
   }
 
-  private func applyAgentSessionTitle(_ title: String?, surfaceID: UUID) {
+  private func applyAgentSessionTitle(_ title: String?, surfaceID: UUID, agent: SkillAgent) {
     guard let (worktreeID, state) = state(containingSurfaceID: surfaceID) else { return }
-    guard state.setAgentSessionTitle(title, forSurfaceID: surfaceID) else { return }
+    guard state.setAgentSessionTitle(title, forSurfaceID: surfaceID, agent: agent) else { return }
     markLayoutDirty(worktreeID: worktreeID)
   }
 
@@ -500,7 +500,7 @@ final class WorktreeTerminalManager {
       self?.selectedWorktreeID == worktree.id
     }
     state.onSurfacesClosed = { [weak self] ids in
-      self?.cancelClaudeSessionTitleSync(forSurfaceIDs: ids)
+      self?.cancelAgentSessionTitleSync(forSurfaceIDs: ids)
       self?.emit(.surfacesClosed(ids))
     }
     // OSC-sourced presence events go through the existing idle-debounce funnel.
@@ -629,7 +629,7 @@ final class WorktreeTerminalManager {
     }
     states = states.filter { shouldKeep($0.key, $0.value) }
     cancelPendingIdleHooks(forSurfaceIDs: prunedSurfaceIDs)
-    cancelClaudeSessionTitleSync(forSurfaceIDs: prunedSurfaceIDs)
+    cancelAgentSessionTitleSync(forSurfaceIDs: prunedSurfaceIDs)
     for (id, _) in removed { invalidateCaches(forPrunedWorktree: id) }
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()

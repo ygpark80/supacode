@@ -1046,9 +1046,9 @@ final class WorktreeTerminalState {
   }
 
   @discardableResult
-  func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID) -> Bool {
+  func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID, agent: SkillAgent) -> Bool {
     guard let state = surfaceStates[surfaceID] else { return false }
-    return state.setTitle(title, source: .agentSession)
+    return state.setTitle(title, source: .agentSession(agent))
   }
 
   private func clearAllSurfaceUnseenFlags() {
@@ -1131,7 +1131,7 @@ final class WorktreeTerminalState {
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
           terminalTitle: snapshotTitle(for: view),
-          agents: agentsBySurface[view.id]
+          agents: snapshotAgents(for: view, agentsBySurface: agentsBySurface)
         )
       )
     case .split(let split):
@@ -1152,10 +1152,34 @@ final class WorktreeTerminalState {
   }
 
   private func snapshotTitle(for view: GhosttySurfaceView) -> String? {
-    surfaceStates[view.id]?.preferredTitle(
-      sources: [.agentSession, .terminal],
-      fallback: view.bridge.state.title
-    )
+    surfaceStates[view.id]?.terminalTitle
+      ?? normalizedTitle(view.bridge.state.title)
+  }
+
+  private func snapshotAgents(
+    for view: GhosttySurfaceView,
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+  ) -> [TerminalLayoutSnapshot.SurfaceAgentRecord]? {
+    guard let records = agentsBySurface[view.id] else { return nil }
+    guard let surfaceState = surfaceStates[view.id] else { return records }
+    return records.map { record in
+      guard let agent = SkillAgent(rawValue: record.agent),
+        let title = surfaceState.agentSessionTitle(for: agent)
+      else {
+        return record
+      }
+      return TerminalLayoutSnapshot.SurfaceAgentRecord(
+        agent: record.agent,
+        pids: record.pids,
+        activity: record.activity,
+        title: title
+      )
+    }
+  }
+
+  private func normalizedTitle(_ title: String?) -> String? {
+    let title = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return title.isEmpty ? nil : title
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {
@@ -1273,6 +1297,22 @@ final class WorktreeTerminalState {
     let title = snapshot.terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !title.isEmpty {
       surfaceStates[surface.id]?.setTitle(title, source: .terminal)
+    }
+    restoreAgentSessionTitles(snapshot, for: surface)
+  }
+
+  private func restoreAgentSessionTitles(
+    _ snapshot: TerminalLayoutSnapshot.SurfaceSnapshot,
+    for surface: GhosttySurfaceView
+  ) {
+    guard let agents = snapshot.agents else { return }
+    for record in agents {
+      guard let agent = SkillAgent(rawValue: record.agent),
+        let title = normalizedTitle(record.title)
+      else {
+        continue
+      }
+      surfaceStates[surface.id]?.setTitle(title, source: .agentSession(agent))
     }
   }
 
