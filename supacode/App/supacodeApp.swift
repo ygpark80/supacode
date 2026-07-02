@@ -29,6 +29,17 @@ private enum GhosttyCLI {
   }()
 }
 
+private enum AgentEnvironmentSanitizer {
+  static func sanitizeInheritedEnvironment() {
+    for key in [
+      "CODEX_CI",
+      "CODEX_THREAD_ID",
+    ] {
+      unsetenv(key)
+    }
+  }
+}
+
 @MainActor
 final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
   var appStore: StoreOf<AppFeature>? {
@@ -123,6 +134,7 @@ struct SupacodeApp: App {
 
   @MainActor init() {
     NSWindow.allowsAutomaticWindowTabbing = false
+    AgentEnvironmentSanitizer.sanitizeInheritedEnvironment()
     UserDefaults.standard.set(200, forKey: "NSInitialToolTipDelay")
     // Fold the six legacy sidebar-state sources into `sidebar.json`
     // before any @Shared binding observes them:
