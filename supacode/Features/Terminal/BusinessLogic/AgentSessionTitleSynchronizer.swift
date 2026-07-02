@@ -144,31 +144,58 @@ final class AgentSessionTitleSynchronizer {
   }
 
   private nonisolated static func readCodexSessionTitle(session: Session) -> String? {
-    guard let workingDirectory = session.workingDirectory,
-      !workingDirectory.isEmpty
-    else {
-      return nil
-    }
     let databaseURL = FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".codex/state_5.sqlite", directoryHint: .notDirectory)
     guard FileManager.default.fileExists(atPath: databaseURL.path(percentEncoded: false)) else {
       return nil
     }
-    let sql = """
-      select title from threads
-      where archived = 0 and cwd = \(sqlString(workingDirectory))
-      order by updated_at_ms desc
-      limit 1;
-      """
+
+    let sql: String
+    if let threadID = codexThreadID(pid: session.pid) {
+      sql = """
+        select title from threads
+        where id = \(sqlString(threadID))
+        limit 1;
+        """
+    } else if let workingDirectory = session.workingDirectory,
+      !workingDirectory.isEmpty
+    {
+      sql = """
+        select title from threads
+        where archived = 0 and cwd = \(sqlString(workingDirectory))
+        order by updated_at_ms desc
+        limit 1;
+        """
+    } else {
+      return nil
+    }
+
     guard let output = runSQLite(databaseURL: databaseURL, sql: sql) else { return nil }
     let title = output.trimmingCharacters(in: .whitespacesAndNewlines)
     return title.isEmpty ? nil : title
   }
 
+  private nonisolated static func codexThreadID(pid: pid_t) -> String? {
+    guard let output = runProcess(executableURL: URL(filePath: "/bin/ps"), arguments: ["eww", "-p", "\(pid)"]) else {
+      return nil
+    }
+    let prefix = "CODEX_THREAD_ID="
+    return output.split(whereSeparator: \.isWhitespace)
+      .first { $0.hasPrefix(prefix) }
+      .map { String($0.dropFirst(prefix.count)) }
+  }
+
   private nonisolated static func runSQLite(databaseURL: URL, sql: String) -> String? {
+    runProcess(
+      executableURL: URL(filePath: "/usr/bin/sqlite3"),
+      arguments: ["-readonly", databaseURL.path(percentEncoded: false), sql]
+    )
+  }
+
+  private nonisolated static func runProcess(executableURL: URL, arguments: [String]) -> String? {
     let process = Process()
-    process.executableURL = URL(filePath: "/usr/bin/sqlite3")
-    process.arguments = ["-readonly", databaseURL.path(percentEncoded: false), sql]
+    process.executableURL = executableURL
+    process.arguments = arguments
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = Pipe()
