@@ -69,11 +69,7 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     /// off-main liveness check. Nil on legacy layouts and fresh surfaces.
     let agents: [SurfaceAgentRecord]?
 
-    init(
-      id: UUID?,
-      workingDirectory: String?,
-      agents: [SurfaceAgentRecord]? = nil
-    ) {
+    init(id: UUID?, workingDirectory: String?, agents: [SurfaceAgentRecord]? = nil) {
       self.id = id
       self.workingDirectory = workingDirectory
       self.agents = agents
@@ -99,12 +95,6 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     let agent: String
     let pids: [Int32]
     let activity: String
-
-    init(agent: String, pids: [Int32], activity: String) {
-      self.agent = agent
-      self.pids = pids
-      self.activity = activity
-    }
   }
 
 }
