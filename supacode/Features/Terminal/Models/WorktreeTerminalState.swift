@@ -1158,26 +1158,7 @@ final class WorktreeTerminalState {
     for view: GhosttySurfaceView,
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
   ) -> [TerminalLayoutSnapshot.SurfaceAgentRecord]? {
-    guard let records = agentsBySurface[view.id] else { return nil }
-    guard let surfaceState = surfaceStates[view.id] else { return records }
-    return records.map { record in
-      guard let agent = SkillAgent(rawValue: record.agent),
-        let title = surfaceState.agentSessionTitle(for: agent)
-      else {
-        return record
-      }
-      return TerminalLayoutSnapshot.SurfaceAgentRecord(
-        agent: record.agent,
-        pids: record.pids,
-        activity: record.activity,
-        title: title
-      )
-    }
-  }
-
-  private func normalizedTitle(_ title: String?) -> String? {
-    let title = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return title.isEmpty ? nil : title
+    agentsBySurface[view.id]
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {
@@ -1212,7 +1193,6 @@ final class WorktreeTerminalState {
         context: context,
         surfaceID: tabSnapshot.layout.firstLeaf.id,
       )
-      restoreAgentSessionTitles(tabSnapshot.layout.firstLeaf, for: surface)
       let tree = SplitTree(view: surface)
       setTree(tree, for: tabId)
       setFocusedSurface(surface.id, for: tabId)
@@ -1283,24 +1263,8 @@ final class WorktreeTerminalState {
     }
 
     // Recurse into left and right subtrees.
-    restoreAgentSessionTitles(split.right.firstLeaf, for: newSurface)
     restoreLayoutNode(split.left, anchor: anchor, tabId: tabId)
     restoreLayoutNode(split.right, anchor: newSurface, tabId: tabId)
-  }
-
-  private func restoreAgentSessionTitles(
-    _ snapshot: TerminalLayoutSnapshot.SurfaceSnapshot,
-    for surface: GhosttySurfaceView
-  ) {
-    guard let agents = snapshot.agents else { return }
-    for record in agents {
-      guard let agent = SkillAgent(rawValue: record.agent),
-        let title = normalizedTitle(record.title)
-      else {
-        continue
-      }
-      surfaceStates[surface.id]?.setTitle(title, source: .agentSession(agent))
-    }
   }
 
   private func createRestorationSplit(

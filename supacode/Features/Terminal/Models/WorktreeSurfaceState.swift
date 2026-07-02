@@ -84,8 +84,4 @@ final class WorktreeSurfaceState {
         return $0.source.sortKey < $1.source.sortKey
       }
   }
-
-  func agentSessionTitle(for agent: SkillAgent) -> String? {
-    title(for: .agentSession(agent))
-  }
 }
