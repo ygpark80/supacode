@@ -7,15 +7,21 @@ import SwiftUI
 
 private let terminalLogger = SupaLogger("Terminal")
 
-private enum TerminalLaunchEnvironmentSanitizer {
-  /// Supacode is often launched from inside an agent terminal while testing.
-  /// Terminal surfaces inherit the app process environment, so clear session-scoped
-  /// agent vars before Ghostty spawns child shells.
-  static func sanitizeInheritedAgentEnvironment() {
-    for key in [
+private enum AgentLaunchEnvironmentPolicy {
+  /// Supacode can itself be launched from inside an agent terminal while testing.
+  /// Ghostty child shells inherit the app process environment, so remove only
+  /// session-scoped agent variables known to misattribute nested agent sessions.
+  /// Do not strip broad prefixes such as `ANTHROPIC_` or `OPENAI_`: those can be
+  /// auth/config inputs the user expects child shells to keep.
+  private static let inheritedSessionVariablesByAgent: [SkillAgent: [String]] = [
+    .codex: [
       "CODEX_CI",
       "CODEX_THREAD_ID",
-    ] {
+    ]
+  ]
+
+  static func sanitizeInheritedSessionEnvironment() {
+    for key in inheritedSessionVariablesByAgent.values.joined() {
       unsetenv(key)
     }
   }
@@ -142,7 +148,7 @@ final class WorktreeTerminalManager {
     socketServer: AgentHookSocketServer? = nil,
     clock: C = ContinuousClock(),
   ) {
-    TerminalLaunchEnvironmentSanitizer.sanitizeInheritedAgentEnvironment()
+    AgentLaunchEnvironmentPolicy.sanitizeInheritedSessionEnvironment()
     self.runtime = runtime
     let hookEventSleep: @Sendable (Duration) async throws -> Void = { duration in
       try await clock.sleep(for: duration)
