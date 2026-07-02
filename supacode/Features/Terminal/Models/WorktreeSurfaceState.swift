@@ -11,7 +11,7 @@ struct WorktreeSurfaceTitle: Equatable {
     var priority: Int {
       switch self {
       case .paneOverride: 0
-      case .agentSession(.codex): 3
+      case .agentSession(.codex): 1
       case .agentSession: 1
       case .terminal: 2
       }
