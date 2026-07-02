@@ -1045,6 +1045,16 @@ final class WorktreeTerminalState {
     state.hasUnseenNotification = value
   }
 
+  @discardableResult
+  func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID) -> Bool {
+    guard let state = surfaceStates[surfaceID] else { return false }
+    let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let normalized = trimmed.isEmpty ? nil : trimmed
+    guard state.agentSessionTitle != normalized else { return false }
+    state.agentSessionTitle = normalized
+    return true
+  }
+
   private func clearAllSurfaceUnseenFlags() {
     for state in surfaceStates.values where state.hasUnseenNotification {
       state.hasUnseenNotification = false
@@ -1125,6 +1135,7 @@ final class WorktreeTerminalState {
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
           terminalTitle: surfaceStates[view.id]?.terminalTitle ?? view.bridge.state.title,
+          agentSessionTitle: surfaceStates[view.id]?.agentSessionTitle,
           agents: agentsBySurface[view.id]
         )
       )
@@ -1258,8 +1269,14 @@ final class WorktreeTerminalState {
     for surface: GhosttySurfaceView
   ) {
     let title = snapshot.terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    guard !title.isEmpty else { return }
-    surfaceStates[surface.id]?.terminalTitle = title
+    if !title.isEmpty {
+      surfaceStates[surface.id]?.terminalTitle = title
+    }
+
+    let agentTitle = snapshot.agentSessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !agentTitle.isEmpty {
+      surfaceStates[surface.id]?.agentSessionTitle = agentTitle
+    }
   }
 
   private func createRestorationSplit(

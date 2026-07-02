@@ -12,6 +12,10 @@ final class WorktreeSurfaceState {
   /// title reported by Ghostty.
   var paneTitle: String?
 
+  /// Session title reported by a coding-agent integration. Kept below a manual
+  /// pane title and above the raw terminal title.
+  var agentSessionTitle: String?
+
   /// Live terminal title reported by Ghostty. Used as the default pane label
   /// when no explicit pane title is set.
   var terminalTitle: String?

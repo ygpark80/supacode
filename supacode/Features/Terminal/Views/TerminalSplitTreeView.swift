@@ -173,26 +173,26 @@ struct TerminalSplitTreeView: View {
     private var terminalContent: some View {
       GhosttyTerminalView(surfaceView: surfaceView)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .overlay {
-            if isDimmed, let fill = unfocusedSplitOverlay.fill, unfocusedSplitOverlay.opacity > 0 {
-              fill
-                .opacity(unfocusedSplitOverlay.opacity)
-                .allowsHitTesting(false)
-            }
+        .overlay {
+          if isDimmed, let fill = unfocusedSplitOverlay.fill, unfocusedSplitOverlay.opacity > 0 {
+            fill
+              .opacity(unfocusedSplitOverlay.opacity)
+              .allowsHitTesting(false)
           }
-          .overlay(alignment: .topTrailing) {
-            if surfaceView.bridge.state.searchNeedle != nil {
-              GhosttySurfaceSearchOverlay(surfaceView: surfaceView)
-            }
+        }
+        .overlay(alignment: .topTrailing) {
+          if surfaceView.bridge.state.searchNeedle != nil {
+            GhosttySurfaceSearchOverlay(surfaceView: surfaceView)
           }
-          .overlay(alignment: .topTrailing) {
-            SurfaceNotificationDotIndicator(state: surfaceState)
+        }
+        .overlay(alignment: .topTrailing) {
+          SurfaceNotificationDotIndicator(state: surfaceState)
+        }
+        .overlay(alignment: .top) {
+          if isSplit {
+            DragHandle(surfaceView: surfaceView)
           }
-          .overlay(alignment: .top) {
-            if isSplit {
-              DragHandle(surfaceView: surfaceView)
-            }
-          }
+        }
     }
 
     private var paneTitle: String? {
@@ -203,7 +203,13 @@ struct TerminalSplitTreeView: View {
         return customTitle
       }
 
-      let title = (surfaceState?.terminalTitle ?? surfaceView.bridge.state.title)?
+      let agentTitle = surfaceState?.agentSessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if !agentTitle.isEmpty {
+        return agentTitle
+      }
+
+      let title =
+        (surfaceState?.terminalTitle ?? surfaceView.bridge.state.title)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !title.isEmpty {
         return title
@@ -237,8 +243,8 @@ struct TerminalSplitTreeView: View {
           .fill(Color(nsColor: .separatorColor))
           .frame(height: 0.5)
       }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
     }
   }
 
