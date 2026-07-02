@@ -14,6 +14,17 @@ final class AgentSessionTitleSynchronizer {
   private var sessions: [UUID: Session] = [:]
 
   private static let pollInterval: Duration = .seconds(1)
+  /// Supacode can itself be launched from inside an agent terminal while testing.
+  /// Ghostty child shells inherit the app process environment, so remove only
+  /// session-scoped variables known to misattribute nested agent session titles.
+  /// Do not strip broad prefixes such as `ANTHROPIC_` or `OPENAI_`: those can be
+  /// auth/config inputs the user expects child shells to keep.
+  private nonisolated static let inheritedSessionVariablesByAgent: [(agent: SkillAgent, variables: [String])] = [
+    (.codex, [
+      "CODEX_CI",
+      "CODEX_THREAD_ID",
+    ])
+  ]
 
   private nonisolated struct Session: Equatable, Sendable {
     let agent: SkillAgent
@@ -73,6 +84,12 @@ final class AgentSessionTitleSynchronizer {
 
   deinit {
     for task in tasks.values { task.cancel() }
+  }
+
+  nonisolated static func sanitizeInheritedSessionEnvironment() {
+    for key in inheritedSessionVariablesByAgent.flatMap(\.variables) {
+      unsetenv(key)
+    }
   }
 
   func update(
