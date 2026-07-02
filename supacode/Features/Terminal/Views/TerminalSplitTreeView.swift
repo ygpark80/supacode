@@ -132,8 +132,38 @@ struct TerminalSplitTreeView: View {
 
     var body: some View {
       GeometryReader { geometry in
-        GhosttyTerminalView(surfaceView: surfaceView)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+          terminalContent
+
+          if let paneTitle {
+            PaneTitleBar(title: paneTitle)
+          }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+          Color.clear
+            .contentShape(.rect)
+            .onDrop(
+              of: [TerminalSplitTreeView.dragType],
+              delegate: SplitDropDelegate(
+                dropState: $dropState,
+                viewSize: geometry.size,
+                destinationId: surfaceView.id,
+                action: action
+              ))
+        }
+        .overlay {
+          if case .dropping(let zone) = dropState {
+            DropOverlayView(zone: zone, size: geometry.size)
+              .allowsHitTesting(false)
+          }
+        }
+      }
+    }
+
+    private var terminalContent: some View {
+      GhosttyTerminalView(surfaceView: surfaceView)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
           .overlay {
             if isDimmed, let fill = unfocusedSplitOverlay.fill, unfocusedSplitOverlay.opacity > 0 {
               fill
@@ -149,77 +179,55 @@ struct TerminalSplitTreeView: View {
           .overlay(alignment: .topTrailing) {
             SurfaceNotificationDotIndicator(state: surfaceState)
           }
-          .overlay(alignment: .topLeading) {
-            if isSplit {
-              PaneTitleBadge(title: paneTitle)
-            }
-          }
           .overlay(alignment: .top) {
             if isSplit {
               DragHandle(surfaceView: surfaceView)
             }
           }
-          .background {
-            Color.clear
-              .contentShape(.rect)
-              .onDrop(
-                of: [TerminalSplitTreeView.dragType],
-                delegate: SplitDropDelegate(
-                  dropState: $dropState,
-                  viewSize: geometry.size,
-                  destinationId: surfaceView.id,
-                  action: action
-                ))
-          }
-          .overlay {
-            if case .dropping(let zone) = dropState {
-              DropOverlayView(zone: zone, size: geometry.size)
-                .allowsHitTesting(false)
-            }
-          }
-      }
     }
 
-    private var paneTitle: String {
-      let title = surfaceView.bridge.state.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private var paneTitle: String? {
+      guard isSplit else { return nil }
+
+      let customTitle = surfaceState?.paneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if !customTitle.isEmpty {
+        return customTitle
+      }
+
+      let title = (surfaceState?.terminalTitle ?? surfaceView.bridge.state.title)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if !title.isEmpty {
         return title
       }
 
-      let pwd = surfaceView.bridge.state.pwd?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !pwd.isEmpty {
-        let lastPathComponent = URL(filePath: pwd).lastPathComponent
-        if !lastPathComponent.isEmpty {
-          return lastPathComponent
-        }
-        return pwd
-      }
-
-      return surfaceView.id.uuidString.prefix(8).uppercased()
+      return nil
     }
 
   }
 
-  struct PaneTitleBadge: View {
+  struct PaneTitleBar: View {
     let title: String
 
     var body: some View {
-      Text(title)
-        .font(.caption2)
-        .fontWeight(.medium)
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .foregroundStyle(.primary)
-        .frame(maxWidth: 220, alignment: .leading)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(.thinMaterial, in: Capsule())
-        .overlay {
-          Capsule()
-            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-        }
-        .padding(.top, 4)
-        .padding(.leading, 6)
+      HStack(spacing: 6) {
+        Text(title)
+          .font(.caption2)
+          .fontWeight(.medium)
+          .lineLimit(1)
+          .truncationMode(.tail)
+          .foregroundStyle(.secondary)
+
+        Spacer(minLength: 0)
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: 18)
+      .padding(.horizontal, 6)
+      .background(Color(nsColor: .windowBackgroundColor))
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(Color(nsColor: .separatorColor))
+          .frame(height: 0.5)
+      }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

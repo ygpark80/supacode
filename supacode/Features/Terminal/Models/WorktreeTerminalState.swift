@@ -1524,6 +1524,7 @@ final class WorktreeTerminalState {
     view.bridge.onTitleChange = { [weak self, weak view] title in
       guard let self, let view else { return }
       guard self.isLiveSurface(view) else { return }
+      self.surfaceStates[view.id]?.terminalTitle = title
       if self.focusedSurfaceIdByTab[tabId] == view.id {
         self.tabManager.updateTitle(tabId, title: title)
       }
@@ -2439,7 +2440,7 @@ final class WorktreeTerminalState {
       focusedSurfaceIdByTab[tabId] == view.id
       ? tree.focusTargetAfterClosing(node)
       : nil
-    let newTree = tree.removing(node)
+    let newTree = tree.removing(node).equalized()
     view.closeSurface()
     cleanupSurfaceState(for: view.id)
     if killZmxSession {

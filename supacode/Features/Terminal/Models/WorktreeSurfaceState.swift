@@ -7,4 +7,12 @@ import Observation
 final class WorktreeSurfaceState {
   /// Mirror of `WorktreeTerminalState.hasUnseenNotification(forSurfaceID:)`.
   var hasUnseenNotification: Bool = false
+
+  /// User- or integration-supplied pane label. Nil means follow the terminal
+  /// title reported by Ghostty.
+  var paneTitle: String?
+
+  /// Live terminal title reported by Ghostty. Used as the default pane label
+  /// when no explicit pane title is set.
+  var terminalTitle: String?
 }
