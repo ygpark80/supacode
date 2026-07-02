@@ -51,15 +51,20 @@ nonisolated enum AgentHookSettingsCommand {
   static func compositeCommand(
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
-    agent: SkillAgent
+    agent: SkillAgent,
+    includeSessionID: Bool = false
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,
       "compositeCommand needs at least one side-effect (events or stdin forward).",
     )
+    let readsStdin = includeSessionID || forwardStdinAsNotification
     var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
-    steps += events.map { AgentPresenceOSC.emitShell(event: $0, agent: agent) }
-    if forwardStdinAsNotification { steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent)) }
+    if readsStdin { steps.append("__in=$(cat)") }
+    steps += events.map { AgentPresenceOSC.emitShell(event: $0, agent: agent, includeSessionID: includeSessionID) }
+    if forwardStdinAsNotification {
+      steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent, readsStdin: !readsStdin))
+    }
     return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
   }
 

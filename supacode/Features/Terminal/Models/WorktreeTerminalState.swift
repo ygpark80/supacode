@@ -1681,7 +1681,12 @@ final class WorktreeTerminalState {
     }
     return .success(
       AgentHookEvent(
-        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid))
+        agent: signal.agent,
+        event: signal.eventRawValue,
+        surfaceID: surfaceID,
+        pid: signal.pid,
+        data: signal.sessionID.map { .object(["session_id": .string($0)]) }
+      ))
   }
 
   /// Parse an OSC 3008 notify signal for the receiving surface, then sanitize and

@@ -18,7 +18,16 @@ final class AgentSessionTitleSynchronizer {
   private nonisolated struct Session: Equatable, Sendable {
     let agent: SkillAgent
     let pid: pid_t
+    let sessionID: String?
     let workingDirectory: String?
+  }
+
+  private nonisolated struct SessionEventData: Decodable {
+    let sessionID: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case sessionID = "session_id"
+    }
   }
 
   private nonisolated struct ClaudeSessionFile: Decodable {
@@ -84,9 +93,15 @@ final class AgentSessionTitleSynchronizer {
     }
 
     guard let pid = event.pid else { return }
+    let sessionID = event.decodeData(SessionEventData.self)?.sessionID
     start(
       surfaceID: event.surfaceID,
-      session: Session(agent: agent, pid: pid, workingDirectory: workingDirectory(event.surfaceID)),
+      session: Session(
+        agent: agent,
+        pid: pid,
+        sessionID: Self.normalizedTitle(sessionID),
+        workingDirectory: workingDirectory(event.surfaceID)
+      ),
       provider: provider,
       surfaceExists: surfaceExists,
       applyTitle: applyTitle
@@ -175,7 +190,7 @@ final class AgentSessionTitleSynchronizer {
       return nil
     }
 
-    if let threadID = codexThreadID(pid: session.pid) {
+    if let threadID = session.sessionID ?? codexThreadID(pid: session.pid) {
       if let title = readCodexSessionIndexTitle(threadID: threadID) {
         return title
       }
