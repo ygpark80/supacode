@@ -88,8 +88,4 @@ final class WorktreeSurfaceState {
   func agentSessionTitle(for agent: SkillAgent) -> String? {
     title(for: .agentSession(agent))
   }
-
-  var terminalTitle: String? {
-    title(for: .terminal)
-  }
 }
