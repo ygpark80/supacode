@@ -196,7 +196,7 @@ struct TerminalSplitTreeView: View {
     }
 
     private var paneTitle: String? {
-      guard paneTitlesEnabled, isSplit else { return nil }
+      guard paneTitlesEnabled else { return nil }
       return surfaceState?.preferredTitle(fallback: surfaceView.bridge.state.title)
     }
 
