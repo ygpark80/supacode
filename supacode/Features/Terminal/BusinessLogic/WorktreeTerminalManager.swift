@@ -1,5 +1,4 @@
 import ComposableArchitecture
-import Darwin
 import Foundation
 import Observation
 import Sharing
@@ -41,11 +40,8 @@ final class WorktreeTerminalManager {
   @ObservationIgnored
   private var pendingIdleHookEvents: [IdleDebounceKey: Task<Void, Never>] = [:]
   @ObservationIgnored
-  private var claudeSessionTitleTasks: [UUID: Task<Void, Never>] = [:]
-  @ObservationIgnored
-  private var claudeSessionTitlePIDs: [UUID: pid_t] = [:]
-  @ObservationIgnored
   private let hookEventSleep: @Sendable (Duration) async throws -> Void
+  @ObservationIgnored private let claudeSessionTitles: ClaudeSessionTitleSynchronizer
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   /// Serialized off-main writer that merges per-worktree layout changes into
@@ -69,11 +65,6 @@ final class WorktreeTerminalManager {
   /// Holds `.idle` long enough to collapse PostToolUse/PreToolUse busy/idle alternation
   /// into a sustained busy; stays sub-perceptible for the badge clearing at end-of-session.
   private static let idleHookDebounceDuration: Duration = .milliseconds(400)
-  private static let claudeSessionTitlePollInterval: Duration = .seconds(1)
-
-  private struct ClaudeSessionFile: Decodable {
-    let name: String?
-  }
 
   private struct IdleDebounceKey: Hashable {
     let surfaceID: UUID
@@ -138,7 +129,11 @@ final class WorktreeTerminalManager {
     clock: C = ContinuousClock(),
   ) {
     self.runtime = runtime
-    self.hookEventSleep = { duration in try await clock.sleep(for: duration) }
+    let hookEventSleep: @Sendable (Duration) async throws -> Void = { duration in
+      try await clock.sleep(for: duration)
+    }
+    self.hookEventSleep = hookEventSleep
+    self.claudeSessionTitles = ClaudeSessionTitleSynchronizer(sleep: hookEventSleep)
     self.layoutDebounceSleep = { duration in try await clock.sleep(for: duration) }
     @Dependency(\.settingsFileStorage) var settingsFileStorage
     self.layoutsWriter = LayoutsIncrementalWriter(storage: settingsFileStorage)
@@ -154,7 +149,6 @@ final class WorktreeTerminalManager {
 
   isolated deinit {
     for task in pendingIdleHookEvents.values { task.cancel() }
-    for task in claudeSessionTitleTasks.values { task.cancel() }
     for task in layoutDirtyTasks.values { task.cancel() }
     for task in layoutFlushTasks.values { task.cancel() }
   }
@@ -210,63 +204,21 @@ final class WorktreeTerminalManager {
   }
 
   private func updateClaudeSessionTitleSync(from event: AgentHookEvent) {
-    guard event.agent == SkillAgent.claude.rawValue else { return }
-
-    if event.eventName == .sessionEnd {
-      stopClaudeSessionTitleSync(forSurfaceID: event.surfaceID, clearingTitle: true)
-      return
-    }
-
-    guard let pid = event.pid else { return }
-    startClaudeSessionTitleSync(surfaceID: event.surfaceID, pid: pid)
-  }
-
-  private func startClaudeSessionTitleSync(surfaceID: UUID, pid: pid_t) {
-    guard state(containingSurfaceID: surfaceID) != nil else { return }
-    if claudeSessionTitlePIDs[surfaceID] == pid, claudeSessionTitleTasks[surfaceID] != nil {
-      return
-    }
-
-    stopClaudeSessionTitleSync(forSurfaceID: surfaceID, clearingTitle: false)
-    claudeSessionTitlePIDs[surfaceID] = pid
-    let sessionURL = Self.claudeSessionURL(pid: pid)
-    let sleep = hookEventSleep
-    claudeSessionTitleTasks[surfaceID] = Task { [weak self] in
-      var lastTitle: String?
-      while !Task.isCancelled {
-        guard Self.isProcessAlive(pid) else { break }
-        let title = Self.readClaudeSessionTitle(at: sessionURL)
-        if title != lastTitle {
-          lastTitle = title
-          self?.applyAgentSessionTitle(title, surfaceID: surfaceID)
-        }
-        try? await sleep(Self.claudeSessionTitlePollInterval)
+    claudeSessionTitles.update(
+      from: event,
+      surfaceExists: { [weak self] surfaceID in
+        self?.state(containingSurfaceID: surfaceID) != nil
+      },
+      applyTitle: { [weak self] title, surfaceID in
+        self?.applyAgentSessionTitle(title, surfaceID: surfaceID)
       }
-
-      guard !Task.isCancelled else { return }
-      self?.finishClaudeSessionTitleSync(surfaceID: surfaceID, pid: pid)
-    }
-  }
-
-  private func stopClaudeSessionTitleSync(forSurfaceID surfaceID: UUID, clearingTitle: Bool) {
-    claudeSessionTitleTasks.removeValue(forKey: surfaceID)?.cancel()
-    claudeSessionTitlePIDs.removeValue(forKey: surfaceID)
-    if clearingTitle {
-      applyAgentSessionTitle(nil, surfaceID: surfaceID)
-    }
+    )
   }
 
   private func cancelClaudeSessionTitleSync(forSurfaceIDs surfaceIDs: Set<UUID>) {
-    for surfaceID in surfaceIDs {
-      stopClaudeSessionTitleSync(forSurfaceID: surfaceID, clearingTitle: true)
+    claudeSessionTitles.cancel(surfaceIDs: surfaceIDs) { [weak self] title, surfaceID in
+      self?.applyAgentSessionTitle(title, surfaceID: surfaceID)
     }
-  }
-
-  private func finishClaudeSessionTitleSync(surfaceID: UUID, pid: pid_t) {
-    guard claudeSessionTitlePIDs[surfaceID] == pid else { return }
-    claudeSessionTitleTasks.removeValue(forKey: surfaceID)
-    claudeSessionTitlePIDs.removeValue(forKey: surfaceID)
-    applyAgentSessionTitle(nil, surfaceID: surfaceID)
   }
 
   private func applyAgentSessionTitle(_ title: String?, surfaceID: UUID) {
@@ -280,26 +232,6 @@ final class WorktreeTerminalManager {
       return (worktreeID, state)
     }
     return nil
-  }
-
-  private static func claudeSessionURL(pid: pid_t) -> URL {
-    FileManager.default.homeDirectoryForCurrentUser
-      .appending(path: ".claude/sessions", directoryHint: .isDirectory)
-      .appending(path: "\(pid).json", directoryHint: .notDirectory)
-  }
-
-  private static func readClaudeSessionTitle(at url: URL) -> String? {
-    guard let data = try? Data(contentsOf: url),
-      let session = try? JSONDecoder().decode(ClaudeSessionFile.self, from: data)
-    else {
-      return nil
-    }
-    let title = session.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return title.isEmpty ? nil : title
-  }
-
-  private static func isProcessAlive(_ pid: pid_t) -> Bool {
-    kill(pid, 0) == 0 || errno == EPERM
   }
 
   private func applyHookEvent(_ event: AgentHookEvent) {

@@ -1134,8 +1134,7 @@ final class WorktreeTerminalState {
         TerminalLayoutSnapshot.SurfaceSnapshot(
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
-          terminalTitle: surfaceStates[view.id]?.terminalTitle ?? view.bridge.state.title,
-          agentSessionTitle: surfaceStates[view.id]?.agentSessionTitle,
+          terminalTitle: snapshotTitle(for: view),
           agents: agentsBySurface[view.id]
         )
       )
@@ -1154,6 +1153,18 @@ final class WorktreeTerminalState {
         )
       )
     }
+  }
+
+  private func snapshotTitle(for view: GhosttySurfaceView) -> String? {
+    let candidates = [
+      surfaceStates[view.id]?.agentSessionTitle,
+      surfaceStates[view.id]?.terminalTitle,
+      view.bridge.state.title,
+    ]
+    return candidates.lazy.compactMap { candidate in
+      let title = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return title.isEmpty ? nil : title
+    }.first
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {
@@ -1271,11 +1282,6 @@ final class WorktreeTerminalState {
     let title = snapshot.terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !title.isEmpty {
       surfaceStates[surface.id]?.terminalTitle = title
-    }
-
-    let agentTitle = snapshot.agentSessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !agentTitle.isEmpty {
-      surfaceStates[surface.id]?.agentSessionTitle = agentTitle
     }
   }
 
