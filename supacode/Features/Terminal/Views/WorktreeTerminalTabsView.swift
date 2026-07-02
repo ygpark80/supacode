@@ -1,7 +1,5 @@
 import AppKit
 import ComposableArchitecture
-import Sharing
-import SupacodeSettingsShared
 import SwiftUI
 
 struct WorktreeTerminalTabsView: View {
@@ -19,7 +17,6 @@ struct WorktreeTerminalTabsView: View {
   // `WindowTintColorScheme` republishes after a Ghostty config reload, so the
   // unfocused-split overlay color tracks system Light/Dark flips.
   @Environment(\.surfaceChromeAppearance) private var chromeAppearance
-  @Shared(.settingsFile) private var settingsFile: SettingsFile
 
   var body: some View {
     let state = manager.state(for: worktree) { shouldRunSetupScript }
@@ -27,7 +24,6 @@ struct WorktreeTerminalTabsView: View {
     // would reintroduce the closed-all flash on first render.
     let _: Void = state.ensureInitialTab(focusing: false)
     let unfocusedSplitOverlay = manager.unfocusedSplitOverlay()
-    let paneTitlesEnabled = settingsFile.global.paneTitlesEnabled
     let _ = chromeAppearance
     VStack(spacing: 0) {
       if !state.shouldHideTabBar {
@@ -67,7 +63,6 @@ struct WorktreeTerminalTabsView: View {
             tabId: tabId,
             terminalState: state,
             terminalsStore: terminalsStore,
-            paneTitlesEnabled: paneTitlesEnabled,
             unfocusedSplitOverlay: unfocusedSplitOverlay
           )
         }
@@ -125,7 +120,6 @@ private struct TerminalSplitTreePane: View {
   let tabId: TerminalTabID
   let terminalState: WorktreeTerminalState
   let terminalsStore: StoreOf<TerminalsFeature>
-  let paneTitlesEnabled: Bool
   let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
 
   var body: some View {
@@ -138,7 +132,6 @@ private struct TerminalSplitTreePane: View {
       tree: terminalState.splitTree(for: tabId),
       terminalState: terminalState,
       activeSurfaceID: terminalState.activeSurfaceID(for: tabId),
-      paneTitlesEnabled: paneTitlesEnabled,
       unfocusedSplitOverlay: unfocusedSplitOverlay,
       action: { operation in
         terminalState.performSplitOperation(operation, in: tabId)

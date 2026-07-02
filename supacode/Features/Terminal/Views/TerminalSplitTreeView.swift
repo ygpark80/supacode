@@ -1,4 +1,6 @@
 import AppKit
+import Sharing
+import SupacodeSettingsShared
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -10,13 +12,13 @@ struct TerminalSplitTreeView: View {
   // Single source of truth for which pane is active in this tab. Any surface
   // whose id does not match this gets the unfocused-split dim overlay.
   let activeSurfaceID: UUID?
-  let paneTitlesEnabled: Bool
   // Supacode renders surfaces directly (no Ghostty SurfaceWrapper), so the
   // unfocused-pane dim overlay is applied here from the `unfocused-split-fill`
   // and `unfocused-split-opacity` config values. Fill is nil when the config
   // is unreadable; callers must skip the overlay in that case.
   let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
   let action: (Operation) -> Void
+  @Shared(.settingsFile) private var settingsFile: SettingsFile
 
   private static let dragType = UTType(exportedAs: "sh.supacode.ghosttySurfaceId")
   private static func dragProvider(for surfaceView: GhosttySurfaceView) -> NSItemProvider {
@@ -39,7 +41,7 @@ struct TerminalSplitTreeView: View {
         isRoot: node == tree.root,
         terminalState: terminalState,
         activeSurfaceID: activeSurfaceID,
-        paneTitlesEnabled: paneTitlesEnabled,
+        paneTitlesEnabled: settingsFile.global.paneTitlesEnabled,
         unfocusedSplitOverlay: unfocusedSplitOverlay,
         action: action
       )
@@ -426,7 +428,6 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
   let tree: SplitTree<GhosttySurfaceView>
   let terminalState: WorktreeTerminalState
   let activeSurfaceID: UUID?
-  let paneTitlesEnabled: Bool
   let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
   let action: (TerminalSplitTreeView.Operation) -> Void
 
@@ -440,7 +441,6 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
         tree: tree,
         terminalState: terminalState,
         activeSurfaceID: activeSurfaceID,
-        paneTitlesEnabled: paneTitlesEnabled,
         unfocusedSplitOverlay: unfocusedSplitOverlay,
         action: action
       ),
