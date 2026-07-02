@@ -218,9 +218,14 @@ struct TerminalSplitTreeView: View {
     let agent: SkillAgent?
 
     var body: some View {
-      HStack(spacing: 7) {
+      HStack(spacing: 8) {
         if let agent {
-          AgentBadgeView(agent: agent, size: 16)
+          Image(agent.assetName)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 18, height: 18)
+            .foregroundStyle(.primary)
+            .padding(.top, 2)
             .accessibilityHidden(true)
         }
 
@@ -234,8 +239,8 @@ struct TerminalSplitTreeView: View {
         Spacer(minLength: 0)
       }
       .frame(maxWidth: .infinity)
-      .frame(height: 22)
-      .padding(.horizontal, 7)
+      .frame(height: 26)
+      .padding(.horizontal, 8)
       .background(.bar)
       .overlay(alignment: .top) {
         Rectangle()
