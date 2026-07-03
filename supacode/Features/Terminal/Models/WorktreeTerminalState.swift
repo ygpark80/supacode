@@ -113,6 +113,7 @@ final class WorktreeTerminalState {
   private var lastCustomNotificationAt: [UUID: any InstantProtocol<Duration>] = [:]
   /// Agent OSC 9 notifications held to see if a custom notification supersedes them.
   private var pendingAgentOSCNotifications: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var detectedCodexTitleTasks: [UUID: Task<Void, Never>] = [:]
   /// How long after a custom notification the agent's own OSC 9 is suppressed.
   /// Split from `oscHoldWindow` so tuning the suppression side cannot silently
   /// change the hold side.
@@ -120,6 +121,8 @@ final class WorktreeTerminalState {
   /// How long the agent's own OSC 9 is held before firing, waiting for a custom
   /// notification to supersede it. Covers the socket-vs-inline-stream arrival skew.
   private static let oscHoldWindow: TimeInterval = 0.5
+  private static let detectedCodexTitlePollInterval: Duration = .seconds(1)
+  private static let detectedCodexTitleRecentWindowMilliseconds: Int64 = 30_000
   /// Monotonic gap between two instants from the same clock. Opens the existentials
   /// so the suppression window can compare instants of the type-erased clock.
   private static func elapsed(
@@ -1052,6 +1055,9 @@ final class WorktreeTerminalState {
   @discardableResult
   func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID, agent: SkillAgent) -> Bool {
     guard let state = surfaceStates[surfaceID] else { return false }
+    if agent == .codex, title != nil {
+      detectedCodexTitleTasks.removeValue(forKey: surfaceID)?.cancel()
+    }
     return state.setTitle(title, source: .agentSession(agent))
   }
 
@@ -1606,9 +1612,40 @@ final class WorktreeTerminalState {
   }
 
   private func setDetectedAgentPaneTitle(_ agent: SkillAgent, forSurfaceID surfaceID: UUID) {
+    if agent == .codex {
+      startDetectedCodexTitlePolling(forSurfaceID: surfaceID)
+    }
     let source = WorktreeSurfaceTitle.Source.agentSession(agent)
     guard surfaceStates[surfaceID]?.title(for: source) == nil else { return }
     surfaceStates[surfaceID]?.setTitle("Session \(shortSurfaceIdentifier(surfaceID))", source: source)
+  }
+
+  private func startDetectedCodexTitlePolling(forSurfaceID surfaceID: UUID) {
+    guard detectedCodexTitleTasks[surfaceID] == nil, surfaceStates[surfaceID] != nil else { return }
+    let sinceMilliseconds = Self.currentTimeMilliseconds() - Self.detectedCodexTitleRecentWindowMilliseconds
+    detectedCodexTitleTasks[surfaceID] = Task { @MainActor [weak self] in
+      var lastTitle: String?
+      while !Task.isCancelled {
+        guard let self, self.surfaceStates[surfaceID] != nil else { break }
+        if let title = await Task.detached(priority: .utility, operation: {
+          AgentSessionTitleSynchronizer.readCodexSessionTitle(
+            surfaceID: surfaceID,
+            sinceMilliseconds: sinceMilliseconds
+          )
+        }).value,
+          title != lastTitle
+        {
+          lastTitle = title
+          self.surfaceStates[surfaceID]?.setTitle(title, source: .agentSession(.codex))
+        }
+        try? await Task.sleep(for: Self.detectedCodexTitlePollInterval)
+      }
+      self?.detectedCodexTitleTasks.removeValue(forKey: surfaceID)
+    }
+  }
+
+  private nonisolated static func currentTimeMilliseconds() -> Int64 {
+    Int64(Date().timeIntervalSince1970 * 1000)
   }
 
   /// Progress / exit / notification / focus callbacks.
@@ -2081,6 +2118,7 @@ final class WorktreeTerminalState {
   /// instant so a future surface ID can't reuse stale dedupe state.
   private func discardSurfaceBookkeeping(for surfaceID: UUID) {
     pendingAgentOSCNotifications.removeValue(forKey: surfaceID)?.cancel()
+    detectedCodexTitleTasks.removeValue(forKey: surfaceID)?.cancel()
     lastCustomNotificationAt.removeValue(forKey: surfaceID)
     surfaces.removeValue(forKey: surfaceID)
     surfaceLaunchMetadata.removeValue(forKey: surfaceID)

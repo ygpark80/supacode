@@ -215,12 +215,31 @@ struct TerminalSplitTreeView: View {
       }
       let normalizedCodingAgentTitle = codingAgentTitle?.value.trimmingCharacters(in: .whitespacesAndNewlines)
       let displayCodingAgentTitle =
-        normalizedCodingAgentTitle == normalizedTerminalTitle ? nil : normalizedCodingAgentTitle
+        shouldShowCodingAgentTitle(normalizedCodingAgentTitle, terminalTitle: normalizedTerminalTitle)
+        ? normalizedCodingAgentTitle
+        : nil
       return PaneTitle(
         terminalTitle: normalizedTerminalTitle,
         codingAgentTitle: displayCodingAgentTitle,
         agent: codingAgentTitle?.agent
       )
+    }
+
+    private func shouldShowCodingAgentTitle(_ agentTitle: String?, terminalTitle: String) -> Bool {
+      guard let agentTitle, !agentTitle.isEmpty else { return false }
+      let agentKey = titleComparisonKey(agentTitle)
+      guard !agentKey.isEmpty else { return false }
+      let terminalKey = titleComparisonKey(terminalTitle)
+      return terminalKey != agentKey && !terminalKey.hasSuffix(agentKey)
+    }
+
+    private func titleComparisonKey(_ title: String) -> String {
+      var output = String()
+      for scalar in title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
+      where scalar.value >= 0x20 && scalar.value != 0x7F {
+        output.unicodeScalars.append(scalar)
+      }
+      return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
   }

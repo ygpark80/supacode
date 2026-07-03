@@ -91,6 +91,20 @@ final class AgentSessionTitleSynchronizer {
     }
   }
 
+  nonisolated static func readCodexSessionTitle(
+    surfaceID: UUID,
+    sinceMilliseconds: Int64
+  ) -> String? {
+    let databaseURL = codexDatabaseURL()
+    guard FileManager.default.fileExists(atPath: databaseURL.path(percentEncoded: false)) else {
+      return nil
+    }
+    guard let threadID = codexThreadID(surfaceID: surfaceID, sinceMilliseconds: sinceMilliseconds) else {
+      return nil
+    }
+    return readCodexSessionTitle(threadID: threadID, databaseURL: databaseURL)
+  }
+
   func update(
     from event: AgentHookEvent,
     surfaceExists: (UUID) -> Bool,
@@ -196,32 +210,40 @@ final class AgentSessionTitleSynchronizer {
   }
 
   private nonisolated static func readCodexSessionTitle(session: Session) -> String? {
-    let databaseURL = FileManager.default.homeDirectoryForCurrentUser
-      .appending(path: ".codex/state_5.sqlite", directoryHint: .notDirectory)
+    let databaseURL = codexDatabaseURL()
     guard FileManager.default.fileExists(atPath: databaseURL.path(percentEncoded: false)) else {
       return nil
     }
 
     if let threadID = session.sessionID ?? codexThreadID(pid: session.pid) {
-      if let title = readCodexSessionIndexTitle(threadID: threadID) {
-        return title
-      }
-      if let rolloutURL = codexRolloutURL(databaseURL: databaseURL, threadID: threadID),
-        let title = readCodexRolloutTitle(rolloutURL: rolloutURL)
-      {
-        return title
-      }
-      return readCodexSQLiteTitle(
-        databaseURL: databaseURL,
-        sql: """
-          select title from threads
-          where id = \(sqlString(threadID))
-          limit 1;
-          """
-      )
+      return readCodexSessionTitle(threadID: threadID, databaseURL: databaseURL)
     } else {
       return nil
     }
+  }
+
+  private nonisolated static func codexDatabaseURL() -> URL {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: ".codex/state_5.sqlite", directoryHint: .notDirectory)
+  }
+
+  private nonisolated static func readCodexSessionTitle(threadID: String, databaseURL: URL) -> String? {
+    if let title = readCodexSessionIndexTitle(threadID: threadID) {
+      return title
+    }
+    if let rolloutURL = codexRolloutURL(databaseURL: databaseURL, threadID: threadID),
+      let title = readCodexRolloutTitle(rolloutURL: rolloutURL)
+    {
+      return title
+    }
+    return readCodexSQLiteTitle(
+      databaseURL: databaseURL,
+      sql: """
+        select title from threads
+        where id = \(sqlString(threadID))
+        limit 1;
+        """
+    )
   }
 
   private nonisolated static func readCodexSQLiteTitle(databaseURL: URL, sql: String) -> String? {
@@ -312,6 +334,55 @@ final class AgentSessionTitleSynchronizer {
     return output.split(whereSeparator: \.isWhitespace)
       .first { $0.hasPrefix(prefix) }
       .map { String($0.dropFirst(prefix.count)) }
+  }
+
+  private nonisolated static func codexThreadID(surfaceID: UUID, sinceMilliseconds: Int64) -> String? {
+    let directoryURL = FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: ".codex/shell_snapshots", directoryHint: .isDirectory)
+    guard
+      let urls = try? FileManager.default.contentsOfDirectory(
+        at: directoryURL,
+        includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return nil
+    }
+
+    let surfaceToken = "SUPACODE_SURFACE_ID=\(surfaceID.uuidString)"
+    let candidates = urls.compactMap { url -> (url: URL, timestamp: Int64, threadID: String)? in
+      guard url.pathExtension == "sh" else { return nil }
+      guard let threadID = url.lastPathComponent.split(separator: ".").first.map(String.init) else { return nil }
+      let timestamp = codexSnapshotTimestampMilliseconds(url: url)
+        ?? codexFileModificationMilliseconds(url: url)
+        ?? 0
+      guard timestamp >= sinceMilliseconds else { return nil }
+      return (url, timestamp, threadID)
+    }
+    .sorted { $0.timestamp > $1.timestamp }
+
+    for candidate in candidates {
+      guard let contents = try? String(contentsOf: candidate.url, encoding: .utf8) else { continue }
+      if contents.range(of: surfaceToken, options: .caseInsensitive) != nil {
+        return candidate.threadID
+      }
+    }
+    return nil
+  }
+
+  private nonisolated static func codexSnapshotTimestampMilliseconds(url: URL) -> Int64? {
+    let parts = url.deletingPathExtension().lastPathComponent.split(separator: ".")
+    guard parts.count >= 2, let nanoseconds = Int64(parts[1]) else { return nil }
+    return nanoseconds / 1_000_000
+  }
+
+  private nonisolated static func codexFileModificationMilliseconds(url: URL) -> Int64? {
+    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+      let date = values.contentModificationDate
+    else {
+      return nil
+    }
+    return Int64(date.timeIntervalSince1970 * 1000)
   }
 
   private nonisolated static func runSQLite(databaseURL: URL, sql: String) -> String? {
