@@ -225,7 +225,6 @@ struct TerminalSplitTreeView: View {
             .aspectRatio(contentMode: .fit)
             .frame(width: 18, height: 18)
             .foregroundStyle(.primary)
-            .padding(.top, 2)
             .accessibilityHidden(true)
         }
 
@@ -239,7 +238,7 @@ struct TerminalSplitTreeView: View {
         Spacer(minLength: 0)
       }
       .frame(maxWidth: .infinity)
-      .frame(height: 26)
+      .frame(height: 30)
       .padding(.horizontal, 8)
       .background(.bar)
       .overlay(alignment: .top) {
