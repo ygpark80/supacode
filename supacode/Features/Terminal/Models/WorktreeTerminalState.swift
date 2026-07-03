@@ -1055,6 +1055,15 @@ final class WorktreeTerminalState {
     return state.setTitle(title, source: .agentSession(agent))
   }
 
+  @discardableResult
+  func syncAgentSessionTitleFallbacks(forSurfaceID surfaceID: UUID, activeAgents: Set<SkillAgent>) -> Bool {
+    guard let state = surfaceStates[surfaceID] else { return false }
+    return state.syncAgentTitleFallbacks(
+      activeAgents: activeAgents,
+      fallbackTitle: "Session \(shortSurfaceIdentifier(surfaceID))"
+    )
+  }
+
   private func clearAllSurfaceUnseenFlags() {
     for state in surfaceStates.values where state.hasUnseenNotification {
       state.hasUnseenNotification = false
@@ -1261,7 +1270,6 @@ final class WorktreeTerminalState {
       layoutLogger.warning("Skipping subtree restoration for tab \(tabId.rawValue)")
       return
     }
-
     // Recurse into left and right subtrees.
     restoreLayoutNode(split.left, anchor: anchor, tabId: tabId)
     restoreLayoutNode(split.right, anchor: newSurface, tabId: tabId)
@@ -1519,6 +1527,10 @@ final class WorktreeTerminalState {
     surfaceLaunchMetadata[view.id] = SurfaceLaunchMetadata(usesZmx: launch.usesZmx, context: context)
     surfaceStates[view.id] = WorktreeSurfaceState()
     return view
+  }
+
+  private func shortSurfaceIdentifier(_ surfaceID: UUID) -> String {
+    String(surfaceID.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
   }
 
   /// Extracted from `createSurface` so the latter stays under swiftlint's

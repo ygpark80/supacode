@@ -1213,6 +1213,7 @@ struct AppFeature {
     let presence = state.agentPresence
     var effects: [Effect<Action>] = []
     var affectedSurfaces: Set<UUID> = []
+    var activeAgentsByAffectedSurface: [UUID: Set<SkillAgent>] = [:]
     for rowID in rowIDs {
       guard let row = state.repositories.sidebarItems[id: rowID] else { continue }
       let agents = presence.agents(across: row.surfaceIDs, badgesEnabled: badgesEnabled)
@@ -1227,6 +1228,17 @@ struct AppFeature {
         )
       )
       affectedSurfaces.formUnion(row.surfaceIDs)
+      for surfaceID in row.surfaceIDs {
+        activeAgentsByAffectedSurface[surfaceID] = presence.bySurface[surfaceID] ?? []
+      }
+    }
+    if !activeAgentsByAffectedSurface.isEmpty {
+      let activeAgentsBySurface = activeAgentsByAffectedSurface
+      effects.append(
+        .run { _ in
+          await terminalClient.send(.syncAgentSessionTitleFallbacks(activeAgentsBySurface))
+        }
+      )
     }
     // Per-tab fanout: any tab containing an affected surface re-projects its
     // agent snapshot. Tab leaves observe `state.agents` directly so per-tab

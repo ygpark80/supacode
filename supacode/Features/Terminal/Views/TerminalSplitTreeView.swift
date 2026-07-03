@@ -203,7 +203,11 @@ struct TerminalSplitTreeView: View {
         return PaneTitle(title: candidate.value, agent: candidate.agent)
       }
       let fallback = surfaceView.bridge.state.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      return fallback.isEmpty ? nil : PaneTitle(title: fallback, agent: nil)
+      if !fallback.isEmpty {
+        return PaneTitle(title: fallback, agent: nil)
+      }
+      guard let initialTitle = surfaceView.initialWorkingDirectoryTitle else { return nil }
+      return PaneTitle(title: initialTitle, agent: nil)
     }
 
   }
@@ -403,6 +407,15 @@ struct TerminalSplitTreeView: View {
         }
       }
     }
+  }
+}
+
+private extension GhosttySurfaceView {
+  var initialWorkingDirectoryTitle: String? {
+    guard let path = initialWorkingDirectoryPath else { return nil }
+    let title = URL(filePath: path, directoryHint: .isDirectory).lastPathComponent
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return title.isEmpty ? nil : title
   }
 }
 

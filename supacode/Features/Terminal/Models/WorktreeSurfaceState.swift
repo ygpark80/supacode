@@ -86,6 +86,22 @@ final class WorktreeSurfaceState {
     titles.first(where: { $0.source == source })?.value
   }
 
+  @discardableResult
+  func syncAgentTitleFallbacks(activeAgents: Set<SkillAgent>, fallbackTitle: String) -> Bool {
+    var changed = false
+    for agent in SkillAgent.allCases {
+      let source = WorktreeSurfaceTitle.Source.agentSession(agent)
+      if activeAgents.contains(agent) {
+        if title(for: source) == nil {
+          changed = setTitle(fallbackTitle, source: source) || changed
+        }
+      } else {
+        changed = setTitle(nil, source: source) || changed
+      }
+    }
+    return changed
+  }
+
   private static func orderedTitles(
     from titlesBySource: [WorktreeSurfaceTitle.Source: String]
   ) -> [WorktreeSurfaceTitle] {
