@@ -209,20 +209,40 @@ struct TerminalSplitTreeView: View {
         ?? surfaceView.initialWorkingDirectoryTitle
       let normalizedTerminalTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard !normalizedTerminalTitle.isEmpty else { return nil }
+      let inferredAgent = inferredAgent(fromTerminalTitle: normalizedTerminalTitle)
+      let displayTerminalTitle = displayedTerminalTitle(
+        normalizedTerminalTitle,
+        inferredAgent: inferredAgent
+      )
       let codingAgentTitle = surfaceState?.preferredTitleCandidate {
         if case .agentSession = $0 { return true }
         return false
       }
       let normalizedCodingAgentTitle = codingAgentTitle?.value.trimmingCharacters(in: .whitespacesAndNewlines)
       let displayCodingAgentTitle =
-        shouldShowCodingAgentTitle(normalizedCodingAgentTitle, terminalTitle: normalizedTerminalTitle)
+        shouldShowCodingAgentTitle(normalizedCodingAgentTitle, terminalTitle: displayTerminalTitle)
         ? normalizedCodingAgentTitle
         : nil
       return PaneTitle(
-        terminalTitle: normalizedTerminalTitle,
+        terminalTitle: displayTerminalTitle,
         codingAgentTitle: displayCodingAgentTitle,
-        agent: codingAgentTitle?.agent
+        agent: codingAgentTitle?.agent ?? inferredAgent
       )
+    }
+
+    private func inferredAgent(fromTerminalTitle title: String) -> SkillAgent? {
+      if title.hasPrefix("OC |") || title.hasPrefix("OpenCode |") {
+        return .opencode
+      }
+      return nil
+    }
+
+    private func displayedTerminalTitle(_ title: String, inferredAgent: SkillAgent?) -> String {
+      guard inferredAgent == .opencode else { return title }
+      for prefix in ["OC |", "OpenCode |"] where title.hasPrefix(prefix) {
+        return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      return title
     }
 
     private func shouldShowCodingAgentTitle(_ agentTitle: String?, terminalTitle: String) -> Bool {
