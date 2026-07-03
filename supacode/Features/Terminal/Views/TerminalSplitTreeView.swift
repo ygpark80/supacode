@@ -146,7 +146,11 @@ struct TerminalSplitTreeView: View {
             .clipped()
 
           if let paneTitle {
-            PaneTitleBar(title: paneTitle.title, agent: paneTitle.agent)
+            PaneTitleBar(
+              terminalTitle: paneTitle.terminalTitle,
+              codingAgentTitle: paneTitle.codingAgentTitle,
+              agent: paneTitle.agent
+            )
               .zIndex(1)
           }
         }
@@ -199,26 +203,34 @@ struct TerminalSplitTreeView: View {
 
     private var paneTitle: PaneTitle? {
       guard paneTitlesEnabled else { return nil }
-      if let candidate = surfaceState?.preferredTitleCandidate() {
-        return PaneTitle(title: candidate.value, agent: candidate.agent)
+      let terminalTitle =
+        surfaceState?.title(for: .terminal)
+        ?? surfaceView.bridge.state.title
+        ?? surfaceView.initialWorkingDirectoryTitle
+      let normalizedTerminalTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !normalizedTerminalTitle.isEmpty else { return nil }
+      let codingAgentTitle = surfaceState?.preferredTitleCandidate {
+        if case .agentSession = $0 { return true }
+        return false
       }
-      let fallback = surfaceView.bridge.state.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !fallback.isEmpty {
-        return PaneTitle(title: fallback, agent: nil)
-      }
-      guard let initialTitle = surfaceView.initialWorkingDirectoryTitle else { return nil }
-      return PaneTitle(title: initialTitle, agent: nil)
+      return PaneTitle(
+        terminalTitle: normalizedTerminalTitle,
+        codingAgentTitle: codingAgentTitle?.value,
+        agent: codingAgentTitle?.agent
+      )
     }
 
   }
 
   struct PaneTitle: Equatable {
-    let title: String
+    let terminalTitle: String
+    let codingAgentTitle: String?
     let agent: SkillAgent?
   }
 
   struct PaneTitleBar: View {
-    let title: String
+    let terminalTitle: String
+    let codingAgentTitle: String?
     let agent: SkillAgent?
 
     var body: some View {
@@ -232,12 +244,25 @@ struct TerminalSplitTreeView: View {
             .accessibilityHidden(true)
         }
 
-        Text(title)
+        Text(terminalTitle)
           .font(.caption)
           .fontWeight(.semibold)
           .lineLimit(1)
           .truncationMode(.tail)
           .foregroundStyle(.primary.opacity(0.78))
+
+        if let codingAgentTitle {
+          Text("/")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+          Text(codingAgentTitle)
+            .font(.caption)
+            .fontWeight(.medium)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(.secondary)
+        }
 
         Spacer(minLength: 0)
       }
