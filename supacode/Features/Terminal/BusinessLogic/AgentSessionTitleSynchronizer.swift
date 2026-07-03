@@ -145,12 +145,13 @@ final class AgentSessionTitleSynchronizer {
 
     stop(surfaceID: surfaceID, clearingTitle: false, applyTitle: applyTitle)
     sessions[surfaceID] = session
+    let fallbackTitle = Self.fallbackTitle(for: session, surfaceID: surfaceID)
     let sleep = sleep
     tasks[surfaceID] = Task.detached { [weak self] in
       var lastTitle: String?
       while !Task.isCancelled {
         guard Self.isProcessAlive(session.pid) else { break }
-        let title = provider.readTitle(session)
+        let title = provider.readTitle(session) ?? fallbackTitle
         if title != lastTitle {
           lastTitle = title
           await applyTitle(title, surfaceID, session.agent)
@@ -307,6 +308,18 @@ final class AgentSessionTitleSynchronizer {
   private nonisolated static func normalizedTitle(_ title: String?) -> String? {
     let title = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return title.isEmpty ? nil : title
+  }
+
+  private nonisolated static func fallbackTitle(for session: Session, surfaceID: UUID) -> String {
+    "Session \(shortIdentifier(session.sessionID ?? surfaceID.uuidString))"
+  }
+
+  private nonisolated static func shortIdentifier(_ value: String) -> String {
+    let compact = value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .filter { $0.isLetter || $0.isNumber }
+    let source = compact.isEmpty ? value.replacingOccurrences(of: "-", with: "") : String(compact)
+    return String(source.prefix(8)).uppercased()
   }
 
   private nonisolated static func codexThreadID(pid: pid_t) -> String? {
