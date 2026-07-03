@@ -87,13 +87,13 @@ final class WorktreeSurfaceState {
   }
 
   @discardableResult
-  func syncAgentTitleFallbacks(activeAgents: Set<SkillAgent>, fallbackTitle: String) -> Bool {
+  func syncActiveAgentTitles(activeAgents: Set<SkillAgent>, placeholderTitle: String) -> Bool {
     var changed = false
     for agent in SkillAgent.allCases {
       let source = WorktreeSurfaceTitle.Source.agentSession(agent)
       if activeAgents.contains(agent) {
         if title(for: source) == nil {
-          changed = setTitle(fallbackTitle, source: source) || changed
+          changed = setTitle(placeholderTitle, source: source) || changed
         }
       } else {
         changed = setTitle(nil, source: source) || changed

@@ -1056,11 +1056,11 @@ final class WorktreeTerminalState {
   }
 
   @discardableResult
-  func syncAgentSessionTitleFallbacks(forSurfaceID surfaceID: UUID, activeAgents: Set<SkillAgent>) -> Bool {
+  func syncActiveAgentPaneTitles(forSurfaceID surfaceID: UUID, activeAgents: Set<SkillAgent>) -> Bool {
     guard let state = surfaceStates[surfaceID] else { return false }
-    return state.syncAgentTitleFallbacks(
+    return state.syncActiveAgentTitles(
       activeAgents: activeAgents,
-      fallbackTitle: "Session \(shortSurfaceIdentifier(surfaceID))"
+      placeholderTitle: "Session \(shortSurfaceIdentifier(surfaceID))"
     )
   }
 

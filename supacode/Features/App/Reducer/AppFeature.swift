@@ -1236,7 +1236,7 @@ struct AppFeature {
       let activeAgentsBySurface = activeAgentsByAffectedSurface
       effects.append(
         .run { _ in
-          await terminalClient.send(.syncAgentSessionTitleFallbacks(activeAgentsBySurface))
+          await terminalClient.send(.syncActiveAgentPaneTitles(activeAgentsBySurface))
         }
       )
     }

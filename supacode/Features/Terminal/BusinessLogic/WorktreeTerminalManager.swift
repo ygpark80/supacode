@@ -368,7 +368,7 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .focusSurface, .splitSurface, .destroyTab,
-      .destroySurface, .syncAgentSessionTitleFallbacks, .prune, .setNotificationsEnabled, .setSelectedWorktreeID,
+      .destroySurface, .syncActiveAgentPaneTitles, .prune, .setNotificationsEnabled, .setSelectedWorktreeID,
       .refreshTabBarVisibility, .beginTabRename:
       return false
     }
@@ -385,7 +385,7 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
       .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
-      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename, .syncAgentSessionTitleFallbacks:
+      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename, .syncActiveAgentPaneTitles:
       return false
     }
     return true
@@ -397,8 +397,8 @@ final class WorktreeTerminalManager {
       prune(keeping: ids, protectingRepositoryIDs: protectedRepositoryIDs)
     case .setNotificationsEnabled(let enabled):
       setNotificationsEnabled(enabled)
-    case .syncAgentSessionTitleFallbacks(let activeAgentsBySurface):
-      syncAgentSessionTitleFallbacks(activeAgentsBySurface)
+    case .syncActiveAgentPaneTitles(let activeAgentsBySurface):
+      syncActiveAgentPaneTitles(activeAgentsBySurface)
     case .refreshTabBarVisibility:
       for state in states.values {
         state.refreshTabBarVisibility()
@@ -421,11 +421,11 @@ final class WorktreeTerminalManager {
     }
   }
 
-  private func syncAgentSessionTitleFallbacks(_ activeAgentsBySurface: [UUID: Set<SkillAgent>]) {
+  private func syncActiveAgentPaneTitles(_ activeAgentsBySurface: [UUID: Set<SkillAgent>]) {
     var dirtyWorktrees: Set<Worktree.ID> = []
     for (surfaceID, activeAgents) in activeAgentsBySurface {
       guard let (worktreeID, state) = state(containingSurfaceID: surfaceID) else { continue }
-      if state.syncAgentSessionTitleFallbacks(forSurfaceID: surfaceID, activeAgents: activeAgents) {
+      if state.syncActiveAgentPaneTitles(forSurfaceID: surfaceID, activeAgents: activeAgents) {
         dirtyWorktrees.insert(worktreeID)
       }
     }

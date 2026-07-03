@@ -56,7 +56,7 @@ struct TerminalClient {
     case destroyTab(Worktree, tabID: TerminalTabID)
     case destroySurface(Worktree, tabID: TerminalTabID, surfaceID: UUID)
     case beginTabRename(Worktree, tabID: TerminalTabID? = nil)
-    case syncAgentSessionTitleFallbacks([UUID: Set<SkillAgent>])
+    case syncActiveAgentPaneTitles([UUID: Set<SkillAgent>])
     case prune(keeping: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
     case setNotificationsEnabled(Bool)
     case setSelectedWorktreeID(Worktree.ID?)
