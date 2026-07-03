@@ -236,12 +236,7 @@ struct TerminalSplitTreeView: View {
     var body: some View {
       HStack(spacing: 8) {
         if let agent {
-          Image(agent.assetName)
-            .renderingMode(.original)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 18, height: 18)
-            .accessibilityHidden(true)
+          PaneAgentIcon(agent: agent)
         }
 
         Text(terminalTitle)
@@ -250,11 +245,14 @@ struct TerminalSplitTreeView: View {
           .lineLimit(1)
           .truncationMode(.tail)
           .foregroundStyle(.primary.opacity(0.78))
+          .layoutPriority(0)
 
         if let codingAgentTitle {
           Text("/")
             .font(.caption)
             .foregroundStyle(.secondary)
+            .fixedSize()
+            .layoutPriority(2)
 
           Text(codingAgentTitle)
             .font(.caption)
@@ -262,6 +260,7 @@ struct TerminalSplitTreeView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .foregroundStyle(.secondary)
+            .layoutPriority(1)
         }
 
         Spacer(minLength: 0)
@@ -277,6 +276,29 @@ struct TerminalSplitTreeView: View {
       }
       .allowsHitTesting(false)
       .accessibilityHidden(true)
+    }
+  }
+
+  struct PaneAgentIcon: View {
+    let agent: SkillAgent
+
+    var body: some View {
+      if agent == .opencode {
+        Image(agent.assetName)
+          .renderingMode(.template)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 18, height: 18)
+          .foregroundStyle(.primary.opacity(0.78))
+          .accessibilityHidden(true)
+      } else {
+        Image(agent.assetName)
+          .renderingMode(.original)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 18, height: 18)
+          .accessibilityHidden(true)
+      }
     }
   }
 
