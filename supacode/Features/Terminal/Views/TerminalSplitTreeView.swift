@@ -225,10 +225,10 @@ struct TerminalSplitTreeView: View {
       HStack(spacing: 8) {
         if let agent {
           Image(agent.assetName)
+            .renderingMode(.original)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 18, height: 18)
-            .foregroundStyle(.primary)
             .accessibilityHidden(true)
         }
 

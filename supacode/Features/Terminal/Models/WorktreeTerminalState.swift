@@ -1526,6 +1526,7 @@ final class WorktreeTerminalState {
     surfaces[view.id] = view
     surfaceLaunchMetadata[view.id] = SurfaceLaunchMetadata(usesZmx: launch.usesZmx, context: context)
     surfaceStates[view.id] = WorktreeSurfaceState()
+    scheduleScreenAgentTitleDetection(for: view, attempts: 12)
     return view
   }
 
@@ -1554,6 +1555,7 @@ final class WorktreeTerminalState {
       guard let self, let view else { return }
       guard self.isLiveSurface(view) else { return }
       self.surfaceStates[view.id]?.setTitle(title, source: .terminal)
+      self.scheduleScreenAgentTitleDetection(for: view)
       if self.focusedSurfaceIdByTab[tabId] == view.id {
         self.tabManager.updateTitle(tabId, title: title)
       }
@@ -1586,6 +1588,27 @@ final class WorktreeTerminalState {
       self.onCommandPaletteToggle?()
       return true
     }
+  }
+
+  private func scheduleScreenAgentTitleDetection(for view: GhosttySurfaceView, attempts: Int = 1) {
+    Task { @MainActor [weak self, weak view] in
+      for _ in 0..<attempts {
+        try? await Task.sleep(for: .milliseconds(500))
+        guard let self, let view, self.isLiveSurface(view) else { return }
+        let screenContents = view.screenContentsSnapshot()
+        guard let agent = SkillAgent.detectedTerminalScreenAgent(from: screenContents) else {
+          continue
+        }
+        self.setDetectedAgentPaneTitle(agent, forSurfaceID: view.id)
+        return
+      }
+    }
+  }
+
+  private func setDetectedAgentPaneTitle(_ agent: SkillAgent, forSurfaceID surfaceID: UUID) {
+    let source = WorktreeSurfaceTitle.Source.agentSession(agent)
+    guard surfaceStates[surfaceID]?.title(for: source) == nil else { return }
+    surfaceStates[surfaceID]?.setTitle("Session \(shortSurfaceIdentifier(surfaceID))", source: source)
   }
 
   /// Progress / exit / notification / focus callbacks.
@@ -2602,4 +2625,19 @@ final class WorktreeTerminalState {
     }
 
   #endif
+}
+
+private extension SkillAgent {
+  static func detectedTerminalScreenAgent(from contents: String) -> SkillAgent? {
+    if contents.contains("Claude Code") || contents.contains("How is Claude doing") {
+      return .claude
+    }
+    if contents.contains("OpenCode") {
+      return .opencode
+    }
+    if contents.contains("OpenAI Codex") {
+      return .codex
+    }
+    return nil
+  }
 }

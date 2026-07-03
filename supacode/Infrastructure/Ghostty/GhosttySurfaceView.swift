@@ -653,6 +653,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
     return String(cString: text.text)
   }
 
+  func screenContentsSnapshot() -> String {
+    cachedScreenContents.get()
+  }
+
   override func keyDown(with event: NSEvent) {
     guard let surface else {
       interpretKeyEvents([event])
