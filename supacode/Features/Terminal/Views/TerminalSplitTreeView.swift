@@ -213,9 +213,12 @@ struct TerminalSplitTreeView: View {
         if case .agentSession = $0 { return true }
         return false
       }
+      let normalizedCodingAgentTitle = codingAgentTitle?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      let displayCodingAgentTitle =
+        normalizedCodingAgentTitle == normalizedTerminalTitle ? nil : normalizedCodingAgentTitle
       return PaneTitle(
         terminalTitle: normalizedTerminalTitle,
-        codingAgentTitle: codingAgentTitle?.value,
+        codingAgentTitle: displayCodingAgentTitle,
         agent: codingAgentTitle?.agent
       )
     }
