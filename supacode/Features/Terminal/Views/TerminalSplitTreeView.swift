@@ -234,13 +234,29 @@ struct TerminalSplitTreeView: View {
       if title.hasPrefix("OC |") || title.hasPrefix("OpenCode |") {
         return .opencode
       }
+      if title == "Claude Code"
+        || title.hasPrefix("Claude Code ")
+        || title.hasPrefix("Claude Code /")
+        || title.hasPrefix("✻ Claude Code")
+        || title.hasPrefix("* Claude Code")
+      {
+        return .claude
+      }
       return nil
     }
 
     private func displayedTerminalTitle(_ title: String, inferredAgent: SkillAgent?) -> String {
-      guard inferredAgent == .opencode else { return title }
-      for prefix in ["OC |", "OpenCode |"] where title.hasPrefix(prefix) {
-        return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+      switch inferredAgent {
+      case .opencode:
+        for prefix in ["OC |", "OpenCode |"] where title.hasPrefix(prefix) {
+          return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+      case .claude:
+        for prefix in ["✻ ", "* "] where title.hasPrefix(prefix + "Claude Code") {
+          return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+      default:
+        break
       }
       return title
     }
@@ -325,15 +341,27 @@ struct TerminalSplitTreeView: View {
     let agent: SkillAgent
 
     var body: some View {
-      if agent == .opencode {
-        Image(agent.assetName)
-          .renderingMode(.template)
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(width: 18, height: 18)
+      switch agent {
+      case .claude:
+        icon
+          .foregroundStyle(Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 87.0 / 255.0))
+      case .codex:
+        icon
+          .foregroundStyle(
+            LinearGradient(
+              colors: [
+                Color(red: 177.0 / 255.0, green: 167.0 / 255.0, blue: 1),
+                Color(red: 122.0 / 255.0, green: 157.0 / 255.0, blue: 1),
+                Color(red: 57.0 / 255.0, green: 65.0 / 255.0, blue: 1),
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+      case .opencode:
+        icon
           .foregroundStyle(.primary.opacity(0.78))
-          .accessibilityHidden(true)
-      } else {
+      default:
         Image(agent.assetName)
           .renderingMode(.original)
           .resizable()
@@ -341,6 +369,15 @@ struct TerminalSplitTreeView: View {
           .frame(width: 18, height: 18)
           .accessibilityHidden(true)
       }
+    }
+
+    private var icon: some View {
+      Image(agent.assetName)
+        .renderingMode(.template)
+        .resizable()
+        .aspectRatio(contentMode: .fit)
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
     }
   }
 
