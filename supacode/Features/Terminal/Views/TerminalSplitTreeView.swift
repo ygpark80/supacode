@@ -238,8 +238,8 @@ struct TerminalSplitTreeView: View {
         Spacer(minLength: 0)
       }
       .frame(maxWidth: .infinity)
-      .frame(height: 30)
-      .padding(.horizontal, 8)
+      .frame(height: 32)
+      .padding(.horizontal, 14)
       .background(.bar)
       .overlay(alignment: .top) {
         Rectangle()
