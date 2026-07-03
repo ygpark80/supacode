@@ -210,9 +210,6 @@ final class WorktreeTerminalManager {
       surfaceExists: { [weak self] surfaceID in
         self?.state(containingSurfaceID: surfaceID) != nil
       },
-      workingDirectory: { [weak self] surfaceID in
-        self?.state(containingSurfaceID: surfaceID)?.1.workingDirectory(forSurfaceID: surfaceID)
-      },
       applyTitle: { [weak self] title, surfaceID, agent in
         self?.applyAgentSessionTitle(title, surfaceID: surfaceID, agent: agent)
       }

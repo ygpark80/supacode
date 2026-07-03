@@ -30,7 +30,6 @@ final class AgentSessionTitleSynchronizer {
     let agent: SkillAgent
     let pid: pid_t
     let sessionID: String?
-    let workingDirectory: String?
   }
 
   private nonisolated struct SessionEventData: Decodable {
@@ -95,14 +94,9 @@ final class AgentSessionTitleSynchronizer {
   func update(
     from event: AgentHookEvent,
     surfaceExists: (UUID) -> Bool,
-    workingDirectory: (UUID) -> String?,
     applyTitle: @escaping @MainActor (String?, UUID, SkillAgent) -> Void
   ) {
-    guard let agent = SkillAgent(rawValue: event.agent),
-      let provider = providers[agent]
-    else {
-      return
-    }
+    guard let agent = SkillAgent(rawValue: event.agent) else { return }
 
     if event.eventName == .sessionEnd {
       stop(surfaceID: event.surfaceID, clearingTitle: true, applyTitle: applyTitle)
@@ -116,10 +110,9 @@ final class AgentSessionTitleSynchronizer {
       session: Session(
         agent: agent,
         pid: pid,
-        sessionID: Self.normalizedTitle(sessionID),
-        workingDirectory: workingDirectory(event.surfaceID)
+        sessionID: Self.normalizedTitle(sessionID)
       ),
-      provider: provider,
+      provider: providers[agent],
       surfaceExists: surfaceExists,
       applyTitle: applyTitle
     )
@@ -134,7 +127,7 @@ final class AgentSessionTitleSynchronizer {
   private func start(
     surfaceID: UUID,
     session: Session,
-    provider: TitleProvider,
+    provider: TitleProvider?,
     surfaceExists: (UUID) -> Bool,
     applyTitle: @escaping @MainActor (String?, UUID, SkillAgent) -> Void
   ) {
@@ -146,12 +139,13 @@ final class AgentSessionTitleSynchronizer {
     stop(surfaceID: surfaceID, clearingTitle: false, applyTitle: applyTitle)
     sessions[surfaceID] = session
     let fallbackTitle = Self.fallbackTitle(for: session, surfaceID: surfaceID)
+    applyTitle(fallbackTitle, surfaceID, session.agent)
     let sleep = sleep
     tasks[surfaceID] = Task.detached { [weak self] in
-      var lastTitle: String?
+      var lastTitle: String? = fallbackTitle
       while !Task.isCancelled {
         guard Self.isProcessAlive(session.pid) else { break }
-        let title = provider.readTitle(session) ?? fallbackTitle
+        let title = provider?.readTitle(session) ?? fallbackTitle
         if title != lastTitle {
           lastTitle = title
           await applyTitle(title, surfaceID, session.agent)
@@ -222,18 +216,6 @@ final class AgentSessionTitleSynchronizer {
         sql: """
           select title from threads
           where id = \(sqlString(threadID))
-          limit 1;
-          """
-      )
-    } else if let workingDirectory = session.workingDirectory,
-      !workingDirectory.isEmpty
-    {
-      return readCodexSQLiteTitle(
-        databaseURL: databaseURL,
-        sql: """
-          select title from threads
-          where archived = 0 and cwd = \(sqlString(workingDirectory))
-          order by updated_at_ms desc
           limit 1;
           """
       )
