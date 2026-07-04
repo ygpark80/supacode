@@ -27,11 +27,23 @@ nonisolated enum CodexHookSettingsError: Error {
 // exits.
 private nonisolated struct CodexHooksPayload: Encodable {
   private static let busy = AgentHookSettingsCommand.compositeCommand(
-    events: [.busy], forwardStdinAsNotification: false, agent: .codex)
+    events: [.busy],
+    forwardStdinAsNotification: false,
+    agent: .codex,
+    presenceMetadataFields: [.sessionID]
+  )
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
-    events: [.idle], forwardStdinAsNotification: true, agent: .codex)
+    events: [.idle],
+    forwardStdinAsNotification: true,
+    agent: .codex,
+    presenceMetadataFields: [.sessionID]
+  )
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .codex)
+    events: [.sessionStart],
+    forwardStdinAsNotification: false,
+    agent: .codex,
+    presenceMetadataFields: [.sessionID]
+  )
 
   let hooks: [String: [AgentHookGroup]] = [
     "SessionStart": [

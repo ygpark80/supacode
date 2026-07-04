@@ -310,8 +310,8 @@ struct AgentHookCommandTests {
       #"[ -n "${SUPACODE_SURFACE_ID:-}" ] && { "#
       + #"__tty=$(ps -o tty= -p "$PPID" 2>/dev/null | tr -d '[:space:]'); "#
       + #"case "$__tty" in *[0-9]*) __tty="/dev/${__tty#/dev/}";; *) __tty="/dev/tty";; esac; "#
-      + #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";pid=$PPID"; "#
-      + #"printf '\033]3008;start=claude;event=busy%s\033\\' "$__sp" > "$__tty"; "#
+      + #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";pid=$PPID"; __ss=""; "#
+      + #"printf '\033]3008;start=claude;event=busy%s%s\033\\' "$__sp" "$__ss" > "$__tty"; "#
       + #"} >/dev/null 2>&1 || true # supacode-managed-hook"#
     #expect(composite == expected)
   }
@@ -575,15 +575,14 @@ struct AgentHookCommandTests {
   private static let suppressTail = #"} >/dev/null 2>&1 || true # supacode-managed-hook"#
 
   private static func presence(_ action: String, _ agent: String, _ event: String) -> String {
-    #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";pid=$PPID"; "#
-      + #"printf '\033]3008;\#(action)=\#(agent);event=\#(event)%s\033\\' "$__sp" > "$__tty"; "#
+    #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";pid=$PPID"; __ss=""; "#
+      + #"printf '\033]3008;\#(action)=\#(agent);event=\#(event)%s%s\033\\' "$__sp" "$__ss" > "$__tty"; "#
   }
 
   private static func notify(_ agent: String) -> String {
     let bodyKeys = AgentPresenceOSC.notifyBodyKeys.joined(separator: ",")
     let awk = AgentPresenceOSC.notifyExtractAwk
-    return #"__in=$(cat); "#
-      + #"__t=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(AgentPresenceOSC.titleField)" "#
+    return #"__t=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(AgentPresenceOSC.titleField)" "#
       + #"-v budget=\#(AgentPresenceOSC.notifyTitleByteBudget) '\#(awk)' | base64 | tr -d '\n'); "#
       + #"__b=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(bodyKeys)" "#
       + #"-v budget=\#(AgentPresenceOSC.notifyBodyByteBudget) '\#(awk)' | base64 | tr -d '\n'); "#
@@ -594,16 +593,16 @@ struct AgentHookCommandTests {
     guardAndTTY + presence("start", "claude", "busy") + suppressTail
 
   static let snapshotClaudeIdleAndNotify =
-    guardAndTTY + presence("start", "claude", "idle") + notify("claude") + suppressTail
+    guardAndTTY + #"__in=$(cat); "# + presence("start", "claude", "idle") + notify("claude") + suppressTail
 
   static let snapshotClaudeSessionEndAndIdle =
     guardAndTTY + presence("end", "claude", "session_end") + presence("start", "claude", "idle") + suppressTail
 
   static let snapshotCodexIdleAndNotify =
-    guardAndTTY + presence("start", "codex", "idle") + notify("codex") + suppressTail
+    guardAndTTY + #"__in=$(cat); "# + presence("start", "codex", "idle") + notify("codex") + suppressTail
 
   static let snapshotKiroIdleAndNotify =
-    guardAndTTY + presence("start", "kiro", "idle") + notify("kiro") + suppressTail
+    guardAndTTY + #"__in=$(cat); "# + presence("start", "kiro", "idle") + notify("kiro") + suppressTail
 
   static let snapshotOpencodeBusy =
     guardAndTTY + presence("start", "opencode", "busy") + suppressTail

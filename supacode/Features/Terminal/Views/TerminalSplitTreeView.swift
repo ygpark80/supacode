@@ -1,4 +1,6 @@
 import AppKit
+import Sharing
+import SupacodeSettingsShared
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -16,6 +18,7 @@ struct TerminalSplitTreeView: View {
   // is unreadable; callers must skip the overlay in that case.
   let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
   let action: (Operation) -> Void
+  @Shared(.settingsFile) private var settingsFile: SettingsFile
 
   private static let dragType = UTType(exportedAs: "sh.supacode.ghosttySurfaceId")
   private static func dragProvider(for surfaceView: GhosttySurfaceView) -> NSItemProvider {
@@ -38,6 +41,7 @@ struct TerminalSplitTreeView: View {
         isRoot: node == tree.root,
         terminalState: terminalState,
         activeSurfaceID: activeSurfaceID,
+        paneTitlesEnabled: settingsFile.global.paneTitlesEnabled,
         unfocusedSplitOverlay: unfocusedSplitOverlay,
         action: action
       )
@@ -56,6 +60,7 @@ struct TerminalSplitTreeView: View {
     var isRoot: Bool = false
     let terminalState: WorktreeTerminalState
     let activeSurfaceID: UUID?
+    let paneTitlesEnabled: Bool
     let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
     let action: (Operation) -> Void
 
@@ -67,6 +72,7 @@ struct TerminalSplitTreeView: View {
           surfaceState: terminalState.surfaceStates[leafView.id],
           isSplit: !isRoot,
           activeSurfaceID: activeSurfaceID,
+          paneTitlesEnabled: paneTitlesEnabled,
           unfocusedSplitOverlay: unfocusedSplitOverlay,
           action: action
         )
@@ -92,6 +98,7 @@ struct TerminalSplitTreeView: View {
               node: split.left,
               terminalState: terminalState,
               activeSurfaceID: activeSurfaceID,
+              paneTitlesEnabled: paneTitlesEnabled,
               unfocusedSplitOverlay: unfocusedSplitOverlay,
               action: action
             )
@@ -101,6 +108,7 @@ struct TerminalSplitTreeView: View {
               node: split.right,
               terminalState: terminalState,
               activeSurfaceID: activeSurfaceID,
+              paneTitlesEnabled: paneTitlesEnabled,
               unfocusedSplitOverlay: unfocusedSplitOverlay,
               action: action
             )
@@ -118,6 +126,7 @@ struct TerminalSplitTreeView: View {
     let surfaceState: WorktreeSurfaceState?
     let isSplit: Bool
     let activeSurfaceID: UUID?
+    let paneTitlesEnabled: Bool
     let unfocusedSplitOverlay: (fill: Color?, opacity: Double)
     let action: (Operation) -> Void
 
@@ -132,49 +141,233 @@ struct TerminalSplitTreeView: View {
 
     var body: some View {
       GeometryReader { geometry in
-        GhosttyTerminalView(surfaceView: surfaceView)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .overlay {
-            if isDimmed, let fill = unfocusedSplitOverlay.fill, unfocusedSplitOverlay.opacity > 0 {
-              fill
-                .opacity(unfocusedSplitOverlay.opacity)
-                .allowsHitTesting(false)
-            }
+        VStack(spacing: 0) {
+          terminalContent
+            .clipped()
+
+          if let paneTitle {
+            PaneTitleBar(
+              terminalTitle: paneTitle.terminalTitle,
+              codingAgentTitle: paneTitle.codingAgentTitle,
+              agent: paneTitle.agent
+            )
+            .zIndex(1)
           }
-          .overlay(alignment: .topTrailing) {
-            if surfaceView.bridge.state.searchNeedle != nil {
-              GhosttySurfaceSearchOverlay(surfaceView: surfaceView)
-            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+          Color.clear
+            .contentShape(.rect)
+            .onDrop(
+              of: [TerminalSplitTreeView.dragType],
+              delegate: SplitDropDelegate(
+                dropState: $dropState,
+                viewSize: geometry.size,
+                destinationId: surfaceView.id,
+                action: action
+              ))
+        }
+        .overlay {
+          if case .dropping(let zone) = dropState {
+            DropOverlayView(zone: zone, size: geometry.size)
+              .allowsHitTesting(false)
           }
-          .overlay(alignment: .topTrailing) {
-            SurfaceNotificationDotIndicator(state: surfaceState)
-          }
-          .overlay(alignment: .top) {
-            if isSplit {
-              DragHandle(surfaceView: surfaceView)
-            }
-          }
-          .background {
-            Color.clear
-              .contentShape(.rect)
-              .onDrop(
-                of: [TerminalSplitTreeView.dragType],
-                delegate: SplitDropDelegate(
-                  dropState: $dropState,
-                  viewSize: geometry.size,
-                  destinationId: surfaceView.id,
-                  action: action
-                ))
-          }
-          .overlay {
-            if case .dropping(let zone) = dropState {
-              DropOverlayView(zone: zone, size: geometry.size)
-                .allowsHitTesting(false)
-            }
-          }
+        }
       }
     }
 
+    private var terminalContent: some View {
+      GhosttyTerminalView(surfaceView: surfaceView)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+          if isDimmed, let fill = unfocusedSplitOverlay.fill, unfocusedSplitOverlay.opacity > 0 {
+            fill
+              .opacity(unfocusedSplitOverlay.opacity)
+              .allowsHitTesting(false)
+          }
+        }
+        .overlay(alignment: .topTrailing) {
+          if surfaceView.bridge.state.searchNeedle != nil {
+            GhosttySurfaceSearchOverlay(surfaceView: surfaceView)
+          }
+        }
+        .overlay(alignment: .topTrailing) {
+          SurfaceNotificationDotIndicator(state: surfaceState)
+        }
+        .overlay(alignment: .top) {
+          if isSplit {
+            DragHandle(surfaceView: surfaceView)
+          }
+        }
+    }
+
+    private var paneTitle: PaneTitle? {
+      guard paneTitlesEnabled else { return nil }
+      let terminalTitle =
+        surfaceState?.title(for: .terminal)
+        ?? surfaceView.bridge.state.title
+        ?? surfaceView.initialWorkingDirectoryTitle
+      let normalizedTerminalTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !normalizedTerminalTitle.isEmpty else { return nil }
+      let inferredAgent = inferredAgent(fromTerminalTitle: normalizedTerminalTitle)
+      let displayTerminalTitle = displayedTerminalTitle(
+        normalizedTerminalTitle,
+        inferredAgent: inferredAgent
+      )
+      let codingAgentTitle = surfaceState?.preferredTitleCandidate {
+        if case .agentSession = $0 { return true }
+        return false
+      }
+      let normalizedCodingAgentTitle = codingAgentTitle?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      let displayCodingAgentTitle =
+        shouldShowCodingAgentTitle(normalizedCodingAgentTitle, terminalTitle: displayTerminalTitle)
+        ? normalizedCodingAgentTitle
+        : nil
+      return PaneTitle(
+        terminalTitle: displayTerminalTitle,
+        codingAgentTitle: displayCodingAgentTitle,
+        agent: codingAgentTitle?.agent ?? inferredAgent
+      )
+    }
+
+    private func inferredAgent(fromTerminalTitle title: String) -> SkillAgent? {
+      SkillAgent.agent(fromTerminalTitle: title)
+    }
+
+    private func displayedTerminalTitle(_ title: String, inferredAgent: SkillAgent?) -> String {
+      switch inferredAgent {
+      case .opencode:
+        for prefix in ["OC |", "OpenCode |"] where title.hasPrefix(prefix) {
+          return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+      case .claude:
+        for prefix in ["✻ ", "* "] where title.hasPrefix(prefix + "Claude Code") {
+          return String(title.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+      default:
+        break
+      }
+      return title
+    }
+
+    private func shouldShowCodingAgentTitle(_ agentTitle: String?, terminalTitle: String) -> Bool {
+      guard let agentTitle, !agentTitle.isEmpty else { return false }
+      let agentKey = titleComparisonKey(agentTitle)
+      guard !agentKey.isEmpty else { return false }
+      let terminalKey = titleComparisonKey(terminalTitle)
+      return terminalKey != agentKey && !terminalKey.hasSuffix(agentKey)
+    }
+
+    private func titleComparisonKey(_ title: String) -> String {
+      var output = String()
+      for scalar in title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
+      where scalar.value >= 0x20 && scalar.value != 0x7F {
+        output.unicodeScalars.append(scalar)
+      }
+      return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+  }
+
+  struct PaneTitle: Equatable {
+    let terminalTitle: String
+    let codingAgentTitle: String?
+    let agent: SkillAgent?
+  }
+
+  struct PaneTitleBar: View {
+    let terminalTitle: String
+    let codingAgentTitle: String?
+    let agent: SkillAgent?
+
+    var body: some View {
+      HStack(spacing: 8) {
+        if let agent {
+          PaneAgentIcon(agent: agent)
+        }
+
+        Text(terminalTitle)
+          .font(.caption)
+          .fontWeight(.semibold)
+          .lineLimit(1)
+          .truncationMode(.tail)
+          .foregroundStyle(.primary.opacity(0.78))
+          .layoutPriority(0)
+
+        if let codingAgentTitle {
+          Text("/")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .layoutPriority(2)
+
+          Text(codingAgentTitle)
+            .font(.caption)
+            .fontWeight(.medium)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(.secondary)
+            .layoutPriority(1)
+        }
+
+        Spacer(minLength: 0)
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: 32)
+      .padding(.horizontal, 14)
+      .background(.bar)
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(Color(nsColor: .separatorColor))
+          .frame(height: 0.5)
+      }
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    }
+  }
+
+  struct PaneAgentIcon: View {
+    let agent: SkillAgent
+
+    var body: some View {
+      switch agent {
+      case .claude:
+        icon
+          .foregroundStyle(Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 87.0 / 255.0))
+      case .codex:
+        icon
+          .foregroundStyle(
+            LinearGradient(
+              colors: [
+                Color(red: 177.0 / 255.0, green: 167.0 / 255.0, blue: 1),
+                Color(red: 122.0 / 255.0, green: 157.0 / 255.0, blue: 1),
+                Color(red: 57.0 / 255.0, green: 65.0 / 255.0, blue: 1),
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+      case .opencode:
+        icon
+          .foregroundStyle(.primary.opacity(0.78))
+      default:
+        Image(agent.assetName)
+          .renderingMode(.original)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 18, height: 18)
+          .accessibilityHidden(true)
+      }
+    }
+
+    private var icon: some View {
+      Image(agent.assetName)
+        .renderingMode(.template)
+        .resizable()
+        .aspectRatio(contentMode: .fit)
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
   }
 
   struct DragHandle: View {
@@ -329,6 +522,15 @@ struct TerminalSplitTreeView: View {
         }
       }
     }
+  }
+}
+
+extension GhosttySurfaceView {
+  fileprivate var initialWorkingDirectoryTitle: String? {
+    guard let path = initialWorkingDirectoryPath else { return nil }
+    let title = URL(filePath: path, directoryHint: .isDirectory).lastPathComponent
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return title.isEmpty ? nil : title
   }
 }
 

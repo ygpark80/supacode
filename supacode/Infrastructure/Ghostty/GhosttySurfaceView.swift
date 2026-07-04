@@ -71,6 +71,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   private let runtime: GhosttyRuntime
   let id: UUID
   let bridge: GhosttySurfaceBridge
+  let initialWorkingDirectoryPath: String?
   private(set) var surface: ghostty_surface_t?
   private var surfaceRef: GhosttyRuntime.SurfaceReference?
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
@@ -222,8 +223,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
       let path = Self.normalizedWorkingDirectoryPath(
         workingDirectory.path(percentEncoded: false)
       )
+      initialWorkingDirectoryPath = path
       workingDirectoryCString = path.withCString { strdup($0) }
     } else {
+      initialWorkingDirectoryPath = nil
       workingDirectoryCString = nil
     }
     if let command {
@@ -648,6 +651,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
     guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
     defer { ghostty_surface_free_text(surface, &text) }
     return String(cString: text.text)
+  }
+
+  func screenContentsSnapshot() -> String {
+    cachedScreenContents.get()
   }
 
   override func keyDown(with event: NSEvent) {

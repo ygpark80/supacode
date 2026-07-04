@@ -35,6 +35,7 @@ public nonisolated enum AgentPresenceOSC {
 
   static let eventField = "event"
   static let pidField = "pid"
+  static let sessionIDField = "session_id"
   static let kindField = "kind"
   static let titleField = "title"
   static let bodyField = "body"
@@ -60,6 +61,7 @@ public nonisolated enum AgentPresenceOSC {
     /// so a local hook carries it and a remote one omits it; a forged positive
     /// pid at worst pins a live-looking badge until surface close.
     public let pid: pid_t?
+    public let sessionID: String?
   }
 
   /// Parse the OSC 3008 context id + raw key=value metadata (as surfaced by
@@ -76,7 +78,18 @@ public nonisolated enum AgentPresenceOSC {
       agent: id,
       eventRawValue: String(rawEvent),
       pid: parsePid(fields[Substring(pidField)]),
+      sessionID: parseSessionID(fields[Substring(sessionIDField)]),
     )
+  }
+
+  private static func parseSessionID(_ raw: Substring?) -> String? {
+    guard let raw else { return nil }
+    let value = String(raw)
+    guard !value.isEmpty else { return nil }
+    guard value.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil else {
+      return nil
+    }
+    return value
   }
 
   /// Parse the optional `pid=` field. Rejects non-numeric and non-positive
@@ -117,7 +130,7 @@ public nonisolated enum AgentPresenceOSC {
   }
 
   private static let dedupedFields: Set<Substring> = [
-    Substring(eventField), Substring(kindField),
+    Substring(eventField), Substring(kindField), Substring(sessionIDField),
   ]
 
   /// A parsed notification signal with already-decoded display text.
@@ -209,12 +222,23 @@ public nonisolated enum AgentPresenceOSC {
   /// host) so a local hook carries `$PPID` and a remote one omits it; a forged
   /// positive pid at worst pins a live-looking badge until surface close. The
   /// suffix is built in shell and filled into a trailing `%s`, empty when remote.
-  static func emitShell(event: HookEvent, agent: SkillAgent) -> String {
-    // Trailing %s for the shell-built, conditionally-empty pid suffix.
-    let meta = metadata(event: event, pidSuffix: "%s")
+  static func emitShell(
+    event: HookEvent,
+    agent: SkillAgent,
+    metadataFields: Set<AgentHookSettingsCommand.PresenceMetadataField> = []
+  ) -> String {
+    // Trailing %s slots for the shell-built, conditionally-empty pid and session-id suffixes.
+    let meta = metadata(event: event, pidSuffix: "%s%s")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
+    let sessionStep =
+      metadataFields.contains(.sessionID)
+      ? #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk "#
+        + #"-v keys="\#(sessionIDField)" -v budget=80 '\#(notifyExtractAwk)'); "#
+        + #"__ss=""; case "$__sid" in ""|*[!A-Za-z0-9_-]*) ;; *) __ss=";\#(sessionIDField)=$__sid";; esac; "#
+      : #"__ss=""; "#
     return #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";\#(pidField)=$PPID"; "#
-      + #"printf '\#(payload)' "$__sp" > "$__tty""#
+      + sessionStep
+      + #"printf '\#(payload)' "$__sp" "$__ss" > "$__tty""#
   }
 
   /// The `key=value` metadata a notify signal carries; `title` / `body` are base64.

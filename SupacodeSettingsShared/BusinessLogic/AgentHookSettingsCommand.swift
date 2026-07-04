@@ -12,6 +12,10 @@ nonisolated enum HookEvent: String {
 }
 
 nonisolated enum AgentHookSettingsCommand {
+  enum PresenceMetadataField: String {
+    case sessionID = "session_id"
+  }
+
   /// Sentinel comment appended to every Supacode-installed hook command.
   /// `AgentHookCommandOwnership` uses this (and ONLY this) to identify
   /// managed commands. `SUPACODE_SOCKET_PATH` is documented public API
@@ -51,15 +55,23 @@ nonisolated enum AgentHookSettingsCommand {
   static func compositeCommand(
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
-    agent: SkillAgent
+    agent: SkillAgent,
+    presenceMetadataFields: Set<PresenceMetadataField> = []
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,
       "compositeCommand needs at least one side-effect (events or stdin forward).",
     )
+    let readsStdin = !presenceMetadataFields.isEmpty || forwardStdinAsNotification
     var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
-    steps += events.map { AgentPresenceOSC.emitShell(event: $0, agent: agent) }
-    if forwardStdinAsNotification { steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent)) }
+    if readsStdin { steps.append("__in=$(cat)") }
+    steps += events.map {
+      AgentPresenceOSC.emitShell(
+        event: $0, agent: agent, metadataFields: presenceMetadataFields)
+    }
+    if forwardStdinAsNotification {
+      steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent, readsStdin: !readsStdin))
+    }
     return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
   }
 

@@ -41,6 +41,7 @@ final class WorktreeTerminalManager {
   private var pendingIdleHookEvents: [IdleDebounceKey: Task<Void, Never>] = [:]
   @ObservationIgnored
   private let hookEventSleep: @Sendable (Duration) async throws -> Void
+  @ObservationIgnored private let agentSessionTitles: AgentSessionTitleSynchronizer
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   /// Serialized off-main writer that merges per-worktree layout changes into
@@ -127,8 +128,13 @@ final class WorktreeTerminalManager {
     socketServer: AgentHookSocketServer? = nil,
     clock: C = ContinuousClock(),
   ) {
+    AgentSessionTitleSynchronizer.sanitizeInheritedSessionEnvironment()
     self.runtime = runtime
-    self.hookEventSleep = { duration in try await clock.sleep(for: duration) }
+    let hookEventSleep: @Sendable (Duration) async throws -> Void = { duration in
+      try await clock.sleep(for: duration)
+    }
+    self.hookEventSleep = hookEventSleep
+    self.agentSessionTitles = AgentSessionTitleSynchronizer(sleep: hookEventSleep)
     self.layoutDebounceSleep = { duration in try await clock.sleep(for: duration) }
     @Dependency(\.settingsFileStorage) var settingsFileStorage
     self.layoutsWriter = LayoutsIncrementalWriter(storage: settingsFileStorage)
@@ -168,6 +174,7 @@ final class WorktreeTerminalManager {
   /// Holds `.idle` for a debounce window so PostToolUse / PreToolUse storms don't flap downstream UI.
   /// Applies the idle debounce before the OSC-sourced event lands in TCA.
   private func dispatchHookEvent(_ event: AgentHookEvent) {
+    updateAgentSessionTitleSync(from: event)
     guard let agent = SkillAgent(rawValue: event.agent) else {
       applyHookEvent(event)
       return
@@ -195,6 +202,37 @@ final class WorktreeTerminalManager {
     for key in stale {
       pendingIdleHookEvents.removeValue(forKey: key)?.cancel()
     }
+  }
+
+  private func updateAgentSessionTitleSync(from event: AgentHookEvent) {
+    agentSessionTitles.update(
+      from: event,
+      surfaceExists: { [weak self] surfaceID in
+        self?.state(containingSurfaceID: surfaceID) != nil
+      },
+      applyTitle: { [weak self] title, surfaceID, agent in
+        self?.applyAgentSessionTitle(title, surfaceID: surfaceID, agent: agent)
+      }
+    )
+  }
+
+  private func cancelAgentSessionTitleSync(forSurfaceIDs surfaceIDs: Set<UUID>) {
+    agentSessionTitles.cancel(surfaceIDs: surfaceIDs) { [weak self] title, surfaceID, agent in
+      self?.applyAgentSessionTitle(title, surfaceID: surfaceID, agent: agent)
+    }
+  }
+
+  private func applyAgentSessionTitle(_ title: String?, surfaceID: UUID, agent: SkillAgent) {
+    guard let (worktreeID, state) = state(containingSurfaceID: surfaceID) else { return }
+    guard state.setAgentSessionTitle(title, forSurfaceID: surfaceID, agent: agent) else { return }
+    markLayoutDirty(worktreeID: worktreeID)
+  }
+
+  private func state(containingSurfaceID surfaceID: UUID) -> (Worktree.ID, WorktreeTerminalState)? {
+    for (worktreeID, state) in states where state.hasSurfaceAnywhere(surfaceID) {
+      return (worktreeID, state)
+    }
+    return nil
   }
 
   private func applyHookEvent(_ event: AgentHookEvent) {
@@ -330,7 +368,7 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .focusSurface, .splitSurface, .destroyTab,
-      .destroySurface, .prune, .setNotificationsEnabled, .setSelectedWorktreeID,
+      .destroySurface, .syncActiveAgentPaneTitles, .prune, .setNotificationsEnabled, .setSelectedWorktreeID,
       .refreshTabBarVisibility, .beginTabRename:
       return false
     }
@@ -347,7 +385,7 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
       .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
-      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename:
+      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename, .syncActiveAgentPaneTitles:
       return false
     }
     return true
@@ -359,6 +397,8 @@ final class WorktreeTerminalManager {
       prune(keeping: ids, protectingRepositoryIDs: protectedRepositoryIDs)
     case .setNotificationsEnabled(let enabled):
       setNotificationsEnabled(enabled)
+    case .syncActiveAgentPaneTitles(let activeAgentsBySurface):
+      syncActiveAgentPaneTitles(activeAgentsBySurface)
     case .refreshTabBarVisibility:
       for state in states.values {
         state.refreshTabBarVisibility()
@@ -378,6 +418,19 @@ final class WorktreeTerminalManager {
       .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface, .splitSurface, .destroyTab,
       .destroySurface, .beginTabRename:
       assertionFailure("Unhandled terminal command reached management handler: \(command)")
+    }
+  }
+
+  private func syncActiveAgentPaneTitles(_ activeAgentsBySurface: [UUID: Set<SkillAgent>]) {
+    var dirtyWorktrees: Set<Worktree.ID> = []
+    for (surfaceID, activeAgents) in activeAgentsBySurface {
+      guard let (worktreeID, state) = state(containingSurfaceID: surfaceID) else { continue }
+      if state.syncActiveAgentPaneTitles(forSurfaceID: surfaceID, activeAgents: activeAgents) {
+        dirtyWorktrees.insert(worktreeID)
+      }
+    }
+    for worktreeID in dirtyWorktrees {
+      markLayoutDirty(worktreeID: worktreeID)
     }
   }
 
@@ -463,6 +516,7 @@ final class WorktreeTerminalManager {
       self?.selectedWorktreeID == worktree.id
     }
     state.onSurfacesClosed = { [weak self] ids in
+      self?.cancelAgentSessionTitleSync(forSurfaceIDs: ids)
       self?.emit(.surfacesClosed(ids))
     }
     // OSC-sourced presence events go through the existing idle-debounce funnel.
@@ -591,6 +645,7 @@ final class WorktreeTerminalManager {
     }
     states = states.filter { shouldKeep($0.key, $0.value) }
     cancelPendingIdleHooks(forSurfaceIDs: prunedSurfaceIDs)
+    cancelAgentSessionTitleSync(forSurfaceIDs: prunedSurfaceIDs)
     for (id, _) in removed { invalidateCaches(forPrunedWorktree: id) }
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()

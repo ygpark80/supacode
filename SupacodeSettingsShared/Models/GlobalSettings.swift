@@ -49,6 +49,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var pullRequestMergeStrategy: PullRequestMergeStrategy
   public var terminalThemeSyncEnabled: Bool
   public var hideSingleTabBar: Bool
+  public var paneTitlesEnabled: Bool
   public var automatedActionPolicy: AutomatedActionPolicy
   public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
   public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
@@ -89,6 +90,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     pullRequestMergeStrategy: .merge,
     terminalThemeSyncEnabled: true,
     hideSingleTabBar: false,
+    paneTitlesEnabled: false,
     automatedActionPolicy: .cliOnly,
     defaultWorktreeBaseDirectoryPath: nil,
     autoDeleteArchivedWorktreesAfterDays: nil,
@@ -123,6 +125,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     pullRequestMergeStrategy: PullRequestMergeStrategy = .merge,
     terminalThemeSyncEnabled: Bool = true,
     hideSingleTabBar: Bool = false,
+    paneTitlesEnabled: Bool = false,
     automatedActionPolicy: AutomatedActionPolicy = .cliOnly,
     defaultWorktreeBaseDirectoryPath: String? = nil,
     autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod? = nil,
@@ -155,6 +158,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.pullRequestMergeStrategy = pullRequestMergeStrategy
     self.terminalThemeSyncEnabled = terminalThemeSyncEnabled
     self.hideSingleTabBar = hideSingleTabBar
+    self.paneTitlesEnabled = paneTitlesEnabled
     self.automatedActionPolicy = automatedActionPolicy
     self.defaultWorktreeBaseDirectoryPath = defaultWorktreeBaseDirectoryPath
     self.autoDeleteArchivedWorktreesAfterDays = autoDeleteArchivedWorktreesAfterDays
@@ -251,6 +255,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     hideSingleTabBar =
       try container.decodeIfPresent(Bool.self, forKey: .hideSingleTabBar)
       ?? Self.default.hideSingleTabBar
+    paneTitlesEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .paneTitlesEnabled)
+      ?? Self.default.paneTitlesEnabled
     // Migrate from the old Bool `allowArbitraryDeeplinkInput` to the new enum.
     if let policy = try container.decodeIfPresent(AutomatedActionPolicy.self, forKey: .automatedActionPolicy) {
       automatedActionPolicy = policy

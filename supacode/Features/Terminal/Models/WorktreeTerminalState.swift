@@ -113,6 +113,14 @@ final class WorktreeTerminalState {
   private var lastCustomNotificationAt: [UUID: any InstantProtocol<Duration>] = [:]
   /// Agent OSC 9 notifications held to see if a custom notification supersedes them.
   private var pendingAgentOSCNotifications: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var detectedCodexTitleTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var screenAgentDetectionTasks: [UUID: Task<Void, Never>] = [:]
+  /// Agents this surface has shown in its terminal title. Once seen, the title is
+  /// authoritative for that agent's lifecycle: a revert to the shell title means exit.
+  @ObservationIgnored private var titleSeenAgentsBySurface: [UUID: Set<SkillAgent>] = [:]
+  /// Agents whose `.agentSession` placeholder was set by screen detection, so we
+  /// clear only our own placeholder and never a hook-synchronizer title.
+  @ObservationIgnored private var screenDetectedAgentsBySurface: [UUID: Set<SkillAgent>] = [:]
   /// How long after a custom notification the agent's own OSC 9 is suppressed.
   /// Split from `oscHoldWindow` so tuning the suppression side cannot silently
   /// change the hold side.
@@ -120,6 +128,8 @@ final class WorktreeTerminalState {
   /// How long the agent's own OSC 9 is held before firing, waiting for a custom
   /// notification to supersede it. Covers the socket-vs-inline-stream arrival skew.
   private static let oscHoldWindow: TimeInterval = 0.5
+  private static let detectedCodexTitlePollInterval: Duration = .seconds(1)
+  private static let detectedCodexTitleRecentWindowMilliseconds: Int64 = 30_000
   /// Monotonic gap between two instants from the same clock. Opens the existentials
   /// so the suppression window can compare instants of the type-erased clock.
   private static func elapsed(
@@ -147,6 +157,10 @@ final class WorktreeTerminalState {
 
   func hasUnseenNotification(forSurfaceID surfaceID: UUID) -> Bool {
     notifications.contains { !$0.isRead && $0.surfaceID == surfaceID }
+  }
+
+  func workingDirectory(forSurfaceID surfaceID: UUID) -> String? {
+    surfaces[surfaceID]?.bridge.state.pwd
   }
 
   func hasUnseenNotification(forTabID tabID: TerminalTabID) -> Bool {
@@ -1045,6 +1059,24 @@ final class WorktreeTerminalState {
     state.hasUnseenNotification = value
   }
 
+  @discardableResult
+  func setAgentSessionTitle(_ title: String?, forSurfaceID surfaceID: UUID, agent: SkillAgent) -> Bool {
+    guard let state = surfaceStates[surfaceID] else { return false }
+    if agent == .codex, title != nil {
+      detectedCodexTitleTasks.removeValue(forKey: surfaceID)?.cancel()
+    }
+    return state.setTitle(title, source: .agentSession(agent))
+  }
+
+  @discardableResult
+  func syncActiveAgentPaneTitles(forSurfaceID surfaceID: UUID, activeAgents: Set<SkillAgent>) -> Bool {
+    guard let state = surfaceStates[surfaceID] else { return false }
+    return state.syncActiveAgentTitles(
+      activeAgents: activeAgents,
+      placeholderTitle: "Session \(shortSurfaceIdentifier(surfaceID))"
+    )
+  }
+
   private func clearAllSurfaceUnseenFlags() {
     for state in surfaceStates.values where state.hasUnseenNotification {
       state.hasUnseenNotification = false
@@ -1124,7 +1156,7 @@ final class WorktreeTerminalState {
         TerminalLayoutSnapshot.SurfaceSnapshot(
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
-          agents: agentsBySurface[view.id]
+          agents: snapshotAgents(for: view, agentsBySurface: agentsBySurface)
         )
       )
     case .split(let split):
@@ -1142,6 +1174,13 @@ final class WorktreeTerminalState {
         )
       )
     }
+  }
+
+  private func snapshotAgents(
+    for view: GhosttySurfaceView,
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+  ) -> [TerminalLayoutSnapshot.SurfaceAgentRecord]? {
+    agentsBySurface[view.id]
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {
@@ -1244,7 +1283,6 @@ final class WorktreeTerminalState {
       layoutLogger.warning("Skipping subtree restoration for tab \(tabId.rawValue)")
       return
     }
-
     // Recurse into left and right subtrees.
     restoreLayoutNode(split.left, anchor: anchor, tabId: tabId)
     restoreLayoutNode(split.right, anchor: newSurface, tabId: tabId)
@@ -1501,7 +1539,12 @@ final class WorktreeTerminalState {
     surfaces[view.id] = view
     surfaceLaunchMetadata[view.id] = SurfaceLaunchMetadata(usesZmx: launch.usesZmx, context: context)
     surfaceStates[view.id] = WorktreeSurfaceState()
+    scheduleScreenAgentTitleDetection(for: view, attempts: 12)
     return view
+  }
+
+  private func shortSurfaceIdentifier(_ surfaceID: UUID) -> String {
+    String(surfaceID.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).uppercased()
   }
 
   /// Extracted from `createSurface` so the latter stays under swiftlint's
@@ -1524,6 +1567,12 @@ final class WorktreeTerminalState {
     view.bridge.onTitleChange = { [weak self, weak view] title in
       guard let self, let view else { return }
       guard self.isLiveSurface(view) else { return }
+      self.surfaceStates[view.id]?.setTitle(title, source: .terminal)
+      self.reconcileScreenDetectedAgents(
+        forSurfaceID: view.id,
+        title: title,
+        viewport: view.screenContentsSnapshot()
+      )
       if self.focusedSurfaceIdByTab[tabId] == view.id {
         self.tabManager.updateTitle(tabId, title: title)
       }
@@ -1556,6 +1605,117 @@ final class WorktreeTerminalState {
       self.onCommandPaletteToggle?()
       return true
     }
+  }
+
+  /// Bootstrap poll that reconciles the screen-detected agent title for a surface's
+  /// first few seconds (an auto-launched agent shows its banner before it sets a
+  /// terminal title). Ongoing set/clear is driven by `onTitleChange` → reconcile.
+  private func scheduleScreenAgentTitleDetection(for view: GhosttySurfaceView, attempts: Int = 12) {
+    let surfaceID = view.id
+    screenAgentDetectionTasks[surfaceID]?.cancel()
+    screenAgentDetectionTasks[surfaceID] = Task { @MainActor [weak self, weak view] in
+      for _ in 0..<attempts {
+        try? await Task.sleep(for: .milliseconds(500))
+        guard let self, let view, self.isLiveSurface(view) else { return }
+        self.reconcileScreenDetectedAgents(
+          forSurfaceID: surfaceID,
+          title: view.bridge.state.title,
+          viewport: view.screenContentsSnapshot()
+        )
+      }
+    }
+  }
+
+  /// Reconciles screen-detected agent pane titles against the terminal title and
+  /// viewport. Once a title-setting agent (`claude`, `opencode`) has appeared in
+  /// the title, the title is authoritative for its lifecycle: reverting to the
+  /// shell title clears our placeholder, so the pane icon disappears on `/exit`.
+  /// The viewport only bootstraps detection before the title is set. `codex` keeps
+  /// its existing detection + real-title polling path and is not cleared here.
+  private func reconcileScreenDetectedAgents(forSurfaceID surfaceID: UUID, title: String?, viewport: String) {
+    guard surfaceStates[surfaceID] != nil else { return }
+    let titleAgent = SkillAgent.agent(fromTerminalTitle: title)
+    let viewportAgent = SkillAgent.detectedTerminalScreenAgent(from: viewport)
+    if let titleAgent {
+      titleSeenAgentsBySurface[surfaceID, default: []].insert(titleAgent)
+    }
+    let titleSeen = titleSeenAgentsBySurface[surfaceID] ?? []
+
+    var present: Set<SkillAgent> = []
+    if let titleAgent {
+      present.insert(titleAgent)
+    }
+    if let viewportAgent, !titleSeen.contains(viewportAgent) {
+      present.insert(viewportAgent)
+    }
+
+    let placeholder = "Session \(shortSurfaceIdentifier(surfaceID))"
+    var owned = screenDetectedAgentsBySurface[surfaceID] ?? []
+
+    for agent in owned where !present.contains(agent) {
+      let source = WorktreeSurfaceTitle.Source.agentSession(agent)
+      if surfaceStates[surfaceID]?.title(for: source) == placeholder {
+        surfaceStates[surfaceID]?.setTitle(nil, source: source)
+      }
+      owned.remove(agent)
+    }
+
+    for agent in present {
+      if agent == .codex {
+        setDetectedAgentPaneTitle(.codex, forSurfaceID: surfaceID)
+        continue
+      }
+      let source = WorktreeSurfaceTitle.Source.agentSession(agent)
+      let current = surfaceStates[surfaceID]?.title(for: source)
+      if current == nil {
+        surfaceStates[surfaceID]?.setTitle(placeholder, source: source)
+        owned.insert(agent)
+      } else if current == placeholder {
+        owned.insert(agent)
+      }
+    }
+
+    screenDetectedAgentsBySurface[surfaceID] = owned.isEmpty ? nil : owned
+  }
+
+  private func setDetectedAgentPaneTitle(_ agent: SkillAgent, forSurfaceID surfaceID: UUID) {
+    if agent == .codex {
+      startDetectedCodexTitlePolling(forSurfaceID: surfaceID)
+    }
+    let source = WorktreeSurfaceTitle.Source.agentSession(agent)
+    guard surfaceStates[surfaceID]?.title(for: source) == nil else { return }
+    surfaceStates[surfaceID]?.setTitle("Session \(shortSurfaceIdentifier(surfaceID))", source: source)
+  }
+
+  private func startDetectedCodexTitlePolling(forSurfaceID surfaceID: UUID) {
+    guard detectedCodexTitleTasks[surfaceID] == nil, surfaceStates[surfaceID] != nil else { return }
+    let sinceMilliseconds = Self.currentTimeMilliseconds() - Self.detectedCodexTitleRecentWindowMilliseconds
+    detectedCodexTitleTasks[surfaceID] = Task { @MainActor [weak self] in
+      var lastTitle: String?
+      while !Task.isCancelled {
+        guard let self, self.surfaceStates[surfaceID] != nil else { break }
+        if let title = await Task.detached(
+          priority: .utility,
+          operation: {
+            AgentSessionTitleSynchronizer.readCodexSessionTitle(
+              surfaceID: surfaceID,
+              sinceMilliseconds: sinceMilliseconds
+            )
+          }
+        ).value,
+          title != lastTitle
+        {
+          lastTitle = title
+          self.surfaceStates[surfaceID]?.setTitle(title, source: .agentSession(.codex))
+        }
+        try? await Task.sleep(for: Self.detectedCodexTitlePollInterval)
+      }
+      self?.detectedCodexTitleTasks.removeValue(forKey: surfaceID)
+    }
+  }
+
+  private nonisolated static func currentTimeMilliseconds() -> Int64 {
+    Int64(Date().timeIntervalSince1970 * 1000)
   }
 
   /// Progress / exit / notification / focus callbacks.
@@ -1663,7 +1823,12 @@ final class WorktreeTerminalState {
     }
     return .success(
       AgentHookEvent(
-        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid))
+        agent: signal.agent,
+        event: signal.eventRawValue,
+        surfaceID: surfaceID,
+        pid: signal.pid,
+        data: signal.sessionID.map { .object(["session_id": .string($0)]) }
+      ))
   }
 
   /// Parse an OSC 3008 notify signal for the receiving surface, then sanitize and
@@ -2023,6 +2188,10 @@ final class WorktreeTerminalState {
   /// instant so a future surface ID can't reuse stale dedupe state.
   private func discardSurfaceBookkeeping(for surfaceID: UUID) {
     pendingAgentOSCNotifications.removeValue(forKey: surfaceID)?.cancel()
+    detectedCodexTitleTasks.removeValue(forKey: surfaceID)?.cancel()
+    screenAgentDetectionTasks.removeValue(forKey: surfaceID)?.cancel()
+    titleSeenAgentsBySurface.removeValue(forKey: surfaceID)
+    screenDetectedAgentsBySurface.removeValue(forKey: surfaceID)
     lastCustomNotificationAt.removeValue(forKey: surfaceID)
     surfaces.removeValue(forKey: surfaceID)
     surfaceLaunchMetadata.removeValue(forKey: surfaceID)
@@ -2439,7 +2608,7 @@ final class WorktreeTerminalState {
       focusedSurfaceIdByTab[tabId] == view.id
       ? tree.focusTargetAfterClosing(node)
       : nil
-    let newTree = tree.removing(node)
+    let newTree = tree.removing(node).equalized()
     view.closeSurface()
     cleanupSurfaceState(for: view.id)
     if killZmxSession {
@@ -2567,4 +2736,19 @@ final class WorktreeTerminalState {
     }
 
   #endif
+}
+
+extension SkillAgent {
+  fileprivate static func detectedTerminalScreenAgent(from contents: String) -> SkillAgent? {
+    if contents.contains("Claude Code") || contents.contains("How is Claude doing") {
+      return .claude
+    }
+    if contents.contains("OpenCode") {
+      return .opencode
+    }
+    if contents.contains("OpenAI Codex") {
+      return .codex
+    }
+    return nil
+  }
 }

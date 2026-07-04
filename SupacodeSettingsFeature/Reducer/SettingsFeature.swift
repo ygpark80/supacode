@@ -62,6 +62,7 @@ public struct SettingsFeature {
     public var pullRequestMergeStrategy: PullRequestMergeStrategy
     public var terminalThemeSyncEnabled: Bool
     public var hideSingleTabBar: Bool
+    public var paneTitlesEnabled: Bool
     public var automatedActionPolicy: AutomatedActionPolicy
     public var defaultWorktreeBaseDirectoryPath: String
     public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
@@ -104,6 +105,7 @@ public struct SettingsFeature {
       pullRequestMergeStrategy = settings.pullRequestMergeStrategy
       terminalThemeSyncEnabled = settings.terminalThemeSyncEnabled
       hideSingleTabBar = settings.hideSingleTabBar
+      paneTitlesEnabled = settings.paneTitlesEnabled
       automatedActionPolicy = settings.automatedActionPolicy
       autoDeleteArchivedWorktreesAfterDays = settings.autoDeleteArchivedWorktreesAfterDays
       shortcutOverrides = settings.shortcutOverrides
@@ -140,6 +142,7 @@ public struct SettingsFeature {
         pullRequestMergeStrategy: pullRequestMergeStrategy,
         terminalThemeSyncEnabled: terminalThemeSyncEnabled,
         hideSingleTabBar: hideSingleTabBar,
+        paneTitlesEnabled: paneTitlesEnabled,
         automatedActionPolicy: automatedActionPolicy,
         defaultWorktreeBaseDirectoryPath: SupacodePaths.normalizedWorktreeBaseDirectoryPath(
           defaultWorktreeBaseDirectoryPath
@@ -278,6 +281,7 @@ public struct SettingsFeature {
         state.pullRequestMergeStrategy = normalizedSettings.pullRequestMergeStrategy
         state.terminalThemeSyncEnabled = normalizedSettings.terminalThemeSyncEnabled
         state.hideSingleTabBar = normalizedSettings.hideSingleTabBar
+        state.paneTitlesEnabled = normalizedSettings.paneTitlesEnabled
         state.automatedActionPolicy = normalizedSettings.automatedActionPolicy
         state.autoDeleteArchivedWorktreesAfterDays = normalizedSettings.autoDeleteArchivedWorktreesAfterDays
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
