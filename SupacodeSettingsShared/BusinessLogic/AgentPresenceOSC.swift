@@ -232,7 +232,9 @@ public nonisolated enum AgentPresenceOSC {
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
     let sessionStep =
       metadataFields.contains(.sessionID)
-      ? #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(sessionIDField)" -v budget=80 '\#(notifyExtractAwk)'); __ss=""; case "$__sid" in ""|*[!A-Za-z0-9_-]*) ;; *) __ss=";\#(sessionIDField)=$__sid";; esac; "#
+      ? #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk "#
+        + #"-v keys="\#(sessionIDField)" -v budget=80 '\#(notifyExtractAwk)'); "#
+        + #"__ss=""; case "$__sid" in ""|*[!A-Za-z0-9_-]*) ;; *) __ss=";\#(sessionIDField)=$__sid";; esac; "#
       : #"__ss=""; "#
     return #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && __sp=";\#(pidField)=$PPID"; "#
       + sessionStep
