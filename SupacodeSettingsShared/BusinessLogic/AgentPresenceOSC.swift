@@ -198,8 +198,8 @@ public nonisolated enum AgentPresenceOSC {
   /// is appended verbatim (e.g. `;pid=123`) so the emit can splice in a
   /// shell-built, conditionally-empty suffix. See `notifyMetadata` for the
   /// notify counterpart.
-  static func metadata(event: HookEvent, suffix: String = "") -> String {
-    "\(eventField)=\(event.rawValue)\(suffix)"
+  static func metadata(event: HookEvent, pidSuffix: String = "") -> String {
+    "\(eventField)=\(event.rawValue)\(pidSuffix)"
   }
 
   /// Shell that resolves `$__tty` to a writable terminal device for the OSC emits.
@@ -228,7 +228,7 @@ public nonisolated enum AgentPresenceOSC {
     metadataFields: Set<AgentHookSettingsCommand.PresenceMetadataField> = []
   ) -> String {
     // Trailing %s slots for the shell-built, conditionally-empty pid and session-id suffixes.
-    let meta = metadata(event: event, suffix: "%s%s")
+    let meta = metadata(event: event, pidSuffix: "%s%s")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
     let sessionStep =
       metadataFields.contains(.sessionID)
