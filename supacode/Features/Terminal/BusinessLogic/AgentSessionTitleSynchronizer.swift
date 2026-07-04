@@ -20,10 +20,13 @@ final class AgentSessionTitleSynchronizer {
   /// Do not strip broad prefixes such as `ANTHROPIC_` or `OPENAI_`: those can be
   /// auth/config inputs the user expects child shells to keep.
   private nonisolated static let inheritedSessionVariablesByAgent: [(agent: SkillAgent, variables: [String])] = [
-    (.codex, [
-      "CODEX_CI",
-      "CODEX_THREAD_ID",
-    ])
+    (
+      .codex,
+      [
+        "CODEX_CI",
+        "CODEX_THREAD_ID",
+      ]
+    )
   ]
 
   private nonisolated struct Session: Equatable, Sendable {
@@ -40,8 +43,14 @@ final class AgentSessionTitleSynchronizer {
     }
   }
 
-  private nonisolated struct ClaudeSessionFile: Decodable {
-    let name: String?
+  private nonisolated struct ClaudeSessionRegistry: Decodable {
+    let sessionId: String?
+  }
+
+  private nonisolated struct ClaudeAiTitleEntry: Decodable {
+    let type: String
+    let aiTitle: String?
+    let sessionId: String?
   }
 
   private nonisolated struct CodexSessionIndexRecord: Decodable {
@@ -67,6 +76,12 @@ final class AgentSessionTitleSynchronizer {
       case type
       case threadName = "thread_name"
     }
+  }
+
+  private nonisolated struct CodexSnapshotCandidate {
+    let url: URL
+    let timestamp: Int64
+    let threadID: String
   }
 
   init(sleep: @escaping @Sendable (Duration) async throws -> Void) {
@@ -199,14 +214,77 @@ final class AgentSessionTitleSynchronizer {
       .appending(path: "\(pid).json", directoryHint: .notDirectory)
   }
 
+  /// Claude Code stores the human-facing session title as `ai-title` records in the
+  /// transcript `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`, NOT as a `name`
+  /// field in `sessions/<pid>.json` (that file is a process registry with no title).
   private nonisolated static func readClaudeSessionTitle(session: Session) -> String? {
-    guard let data = try? Data(contentsOf: claudeSessionURL(pid: session.pid)),
-      let session = try? JSONDecoder().decode(ClaudeSessionFile.self, from: data)
+    guard let sessionID = claudeSessionID(session: session),
+      let transcriptURL = claudeTranscriptURL(sessionID: sessionID)
     else {
       return nil
     }
-    let title = session.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return title.isEmpty ? nil : title
+    let output =
+      runProcess(
+        executableURL: URL(filePath: "/usr/bin/tail"),
+        arguments: ["-n", "500", transcriptURL.path(percentEncoded: false)]
+      )
+      ?? (try? String(contentsOf: transcriptURL, encoding: .utf8))
+    guard let output else { return nil }
+    return parseLatestClaudeAiTitle(fromJSONL: output, sessionID: sessionID)
+  }
+
+  private nonisolated static func claudeSessionID(session: Session) -> String? {
+    if let sessionID = session.sessionID { return sessionID }
+    guard let data = try? Data(contentsOf: claudeSessionURL(pid: session.pid)),
+      let registry = try? JSONDecoder().decode(ClaudeSessionRegistry.self, from: data)
+    else {
+      return nil
+    }
+    return normalizedTitle(registry.sessionId)
+  }
+
+  /// The project dir name encodes cwd, so locate the transcript by the unique
+  /// `<sessionID>.jsonl` filename instead of reconstructing the encoding.
+  private nonisolated static func claudeTranscriptURL(sessionID: String) -> URL? {
+    let projectsRoot = FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: ".claude/projects", directoryHint: .isDirectory)
+    guard
+      let projectDirs = try? FileManager.default.contentsOfDirectory(
+        at: projectsRoot,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return nil
+    }
+    let fileName = "\(sessionID).jsonl"
+    for dir in projectDirs {
+      let candidate = dir.appending(path: fileName, directoryHint: .notDirectory)
+      if FileManager.default.fileExists(atPath: candidate.path(percentEncoded: false)) {
+        return candidate
+      }
+    }
+    return nil
+  }
+
+  /// Newest non-blank `ai-title` for the session wins. Pure + unit-tested.
+  nonisolated static func parseLatestClaudeAiTitle(fromJSONL contents: String, sessionID: String) -> String? {
+    let decoder = JSONDecoder()
+    var title: String?
+    for line in contents.split(separator: "\n", omittingEmptySubsequences: true) {
+      guard let data = String(line).data(using: .utf8),
+        let entry = try? decoder.decode(ClaudeAiTitleEntry.self, from: data),
+        entry.type == "ai-title",
+        entry.sessionId == sessionID
+      else {
+        continue
+      }
+      // A later blank title must not clobber a good earlier one.
+      if let normalized = normalizedTitle(entry.aiTitle) {
+        title = normalized
+      }
+    }
+    return title
   }
 
   private nonisolated static func readCodexSessionTitle(session: Session) -> String? {
@@ -319,7 +397,8 @@ final class AgentSessionTitleSynchronizer {
   }
 
   private nonisolated static func shortIdentifier(_ value: String) -> String {
-    let compact = value
+    let compact =
+      value
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .filter { $0.isLetter || $0.isNumber }
     let source = compact.isEmpty ? value.replacingOccurrences(of: "-", with: "") : String(compact)
@@ -350,14 +429,15 @@ final class AgentSessionTitleSynchronizer {
     }
 
     let surfaceToken = "SUPACODE_SURFACE_ID=\(surfaceID.uuidString)"
-    let candidates = urls.compactMap { url -> (url: URL, timestamp: Int64, threadID: String)? in
+    let candidates = urls.compactMap { url -> CodexSnapshotCandidate? in
       guard url.pathExtension == "sh" else { return nil }
       guard let threadID = url.lastPathComponent.split(separator: ".").first.map(String.init) else { return nil }
-      let timestamp = codexSnapshotTimestampMilliseconds(url: url)
+      let timestamp =
+        codexSnapshotTimestampMilliseconds(url: url)
         ?? codexFileModificationMilliseconds(url: url)
         ?? 0
       guard timestamp >= sinceMilliseconds else { return nil }
-      return (url, timestamp, threadID)
+      return CodexSnapshotCandidate(url: url, timestamp: timestamp, threadID: threadID)
     }
     .sorted { $0.timestamp > $1.timestamp }
 
