@@ -1,3 +1,5 @@
+import Foundation
+
 public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, Codable {
   case claude
   case codex
@@ -46,5 +48,27 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
     case .opencode: "opencode-mark"
     case .pi: "pi-mark"
     }
+  }
+
+  /// The agent inferred from a terminal's OSC title, or `nil` for a plain shell
+  /// title. Title-setting agents (`claude`, `opencode`) can be tracked through
+  /// this: the title reverts to the shell's when the agent exits, so a `nil`
+  /// result is the authoritative "agent is no longer running" signal.
+  public static func agent(fromTerminalTitle title: String?) -> SkillAgent? {
+    guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+      return nil
+    }
+    if title.hasPrefix("OC |") || title.hasPrefix("OpenCode |") {
+      return .opencode
+    }
+    if title == "Claude Code"
+      || title.hasPrefix("Claude Code ")
+      || title.hasPrefix("Claude Code /")
+      || title.hasPrefix("✻ Claude Code")
+      || title.hasPrefix("* Claude Code")
+    {
+      return .claude
+    }
+    return nil
   }
 }

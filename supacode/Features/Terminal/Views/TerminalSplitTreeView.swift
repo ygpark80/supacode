@@ -151,7 +151,7 @@ struct TerminalSplitTreeView: View {
               codingAgentTitle: paneTitle.codingAgentTitle,
               agent: paneTitle.agent
             )
-              .zIndex(1)
+            .zIndex(1)
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -231,18 +231,7 @@ struct TerminalSplitTreeView: View {
     }
 
     private func inferredAgent(fromTerminalTitle title: String) -> SkillAgent? {
-      if title.hasPrefix("OC |") || title.hasPrefix("OpenCode |") {
-        return .opencode
-      }
-      if title == "Claude Code"
-        || title.hasPrefix("Claude Code ")
-        || title.hasPrefix("Claude Code /")
-        || title.hasPrefix("✻ Claude Code")
-        || title.hasPrefix("* Claude Code")
-      {
-        return .claude
-      }
-      return nil
+      SkillAgent.agent(fromTerminalTitle: title)
     }
 
     private func displayedTerminalTitle(_ title: String, inferredAgent: SkillAgent?) -> String {
@@ -536,8 +525,8 @@ struct TerminalSplitTreeView: View {
   }
 }
 
-private extension GhosttySurfaceView {
-  var initialWorkingDirectoryTitle: String? {
+extension GhosttySurfaceView {
+  fileprivate var initialWorkingDirectoryTitle: String? {
     guard let path = initialWorkingDirectoryPath else { return nil }
     let title = URL(filePath: path, directoryHint: .isDirectory).lastPathComponent
       .trimmingCharacters(in: .whitespacesAndNewlines)
